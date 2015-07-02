@@ -22,6 +22,8 @@
 //10. XYZ to sRGB
 // (XYZ_pixel, sRGB graphs) -> sRGB_pixel
 
+#![feature(convert)]
+
 use cgmath::{Ray3, Vector2, Vector3};
 use core::spectrum::RGBSpectrum;
 
@@ -60,9 +62,22 @@ trait Integrator {
     fn radiance(geom_diffs : &[GeomDiff], materials : &[Material], throughput: &[RGBSpectrum]);
 }
 
+
+fn resolution_ndc(buffer:&mut[Vector2<f32>], width: f32, height: f32) {
+    for coord in &mut buffer.iter_mut() {
+        coord.x /= width;
+        coord.y /= height;
+    }
+}
+
 //dynamic dispatch, no point in having static one here. Thus this function is expected to be quite big
 //all loops should be internal in the different components
 fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, shader: &Integrator, out : &mut Texture<RGBSpectrum>) {
-
-    //sampler.create_samples();
+    let elems = out.width * out.height;
+    let v = Vector2::new(0.0f32, 0.0f32);
+    let mut buffer = vec![v; elems as usize];
+    sampler.create_samples(&mut buffer[..]);
+    //translate resoltuion to NDC
+    resolution_ndc(&mut buffer[..], out.width as f32, out.height as f32);
+    //camera.create_rays()
 }
