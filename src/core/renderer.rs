@@ -21,3 +21,48 @@
 // (SPD_pixel, XYZ graphs) -> XYZ_pixel
 //10. XYZ to sRGB
 // (XYZ_pixel, sRGB graphs) -> sRGB_pixel
+
+use cgmath::{Ray3, Vector2, Vector3};
+use core::spectrum::RGBSpectrum;
+
+struct GeomDiff {
+    pos: Vector3<f32>,
+    normal: Vector3<f32>,
+    ts: Vector3<f32>,
+    ss: Vector3<f32>,
+    elem_id: i32 //used to identify, who did the ray hit.
+}
+
+trait Intersectable {
+    fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff>;
+}
+
+struct Texture<T> {
+    entries: Vec<T>,
+    width: i32,
+    height: i32
+}
+
+trait Camera {
+    fn create_rays(&self, NDC: &[Vector2<f32>], rays: &[Ray3<f32>]);
+}
+
+trait Sampler {
+    fn create_samples(&self, buffer:&mut[Vector2<f32>]);
+}
+struct Material {
+    albedo : RGBSpectrum,
+    metalness : f32,
+    roughness : f32,
+    emissiveness : f32
+}
+trait Integrator {
+    fn radiance(geom_diffs : &[GeomDiff], materials : &[Material], throughput: &[RGBSpectrum]);
+}
+
+//dynamic dispatch, no point in having static one here. Thus this function is expected to be quite big
+//all loops should be internal in the different components
+fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, shader: &Integrator, out : &mut Texture<RGBSpectrum>) {
+
+    //sampler.create_samples();
+}
