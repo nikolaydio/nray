@@ -46,7 +46,7 @@ struct Texture<T> {
 }
 
 trait Camera {
-    fn create_rays(&self, NDC: &[Vector2<f32>], rays: &[Ray3<f32>]);
+    fn create_rays(&self, NDC: &[Vector2<f32>]) -> &[Ray3<f32>];
 }
 
 trait Sampler {
@@ -59,15 +59,13 @@ struct Material {
     emissiveness : f32
 }
 trait Integrator {
-    fn radiance(geom_diffs : &[GeomDiff], materials : &[Material], throughput: &[RGBSpectrum]);
+    fn radiance(&self, geom_diffs : &[GeomDiff], materials : &[Material], throughput: &[RGBSpectrum]);
 }
 
 
-fn resolution_ndc(buffer:&mut[Vector2<f32>], width: f32, height: f32) {
-    for coord in &mut buffer.iter_mut() {
-        coord.x /= width;
-        coord.y /= height;
-    }
+fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Vec<Vector2<f32>> {
+    let resolution = Vector2::new(width, height);
+    buffer.iter().map(|elem| { *elem / resolution }).collect()
 }
 
 //dynamic dispatch, no point in having static one here. Thus this function is expected to be quite big
@@ -77,7 +75,18 @@ fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, shader: &In
     let v = Vector2::new(0.0f32, 0.0f32);
     let mut buffer = vec![v; elems as usize];
     sampler.create_samples(&mut buffer[..]);
+
     //translate resoltuion to NDC
-    resolution_ndc(&mut buffer[..], out.width as f32, out.height as f32);
-    //camera.create_rays()
+    let ndc = resolution_to_ndc(&buffer[..], out.width as f32, out.height as f32);
+
+
+    let primary_rays = camera.create_rays(&ndc[..]);
+
+    let geoms : Vec<GeomDiff> = primary_rays.iter().filter_map(|&ray| scene.intersect(ray))
+    .collect();
+
+    //shader part
+    let mats : Vec<Material> = Vec::new();
+    let throughput : Vec<RGBSpectrum> = Vec::new();
+    shader.radiance(&geoms[..], &mats[..], &throughput[..]);
 }
