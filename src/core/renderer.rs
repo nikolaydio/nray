@@ -24,7 +24,7 @@
 
 #![feature(convert)]
 
-use cgmath::{Ray3, Vector2, Vector3};
+use cgmath::{Ray3, Vector2, Vector3, Point3};
 use core::spectrum::RGBSpectrum;
 
 struct GeomDiff {
@@ -32,7 +32,7 @@ struct GeomDiff {
     normal: Vector3<f32>,
     ts: Vector3<f32>,
     ss: Vector3<f32>,
-    elem_id: i32 //used to identify, who did the ray hit.
+    mat_id: i32, //used to identify, who did the ray hit.
 }
 
 trait Intersectable {
@@ -40,23 +40,45 @@ trait Intersectable {
 }
 
 struct Texture<T> {
-    entries: Vec<T>,
-    width: i32,
-    height: i32
+    pub entries: Vec<T>,
+    pub width: usize,
+    pub height: usize
+}
+use std::ops::{Add, Sub};
+impl<T> Texture<T> {
+    pub fn get(&self, x: usize, y: usize) -> &T {
+        &self.entries[y * self.width + x]
+    }
+    pub fn get_mut(&mut self, x: usize, y:usize) -> &mut T {
+        &mut self.entries[y * self.width + x]
+    }
+    pub fn set(&mut self, x: usize, y:usize, t: T) {
+        self.entries[y * self.width + x] = t;
+    }
+}
+fn add_to_texture(out : &mut Texture<RGBSpectrum>, idx: usize, c : RGBSpectrum) {
+    let v = out.entries[idx] + c;
+    out.entries[idx] = v;
 }
 
+
 trait Camera {
-    fn create_rays(&self, NDC: &[Vector2<f32>]) -> &[Ray3<f32>];
+    fn create_rays(&self, NDC: &[Vector2<f32>]) -> Vec<Ray3<f32>>;
 }
 
 trait Sampler {
-    fn create_samples(&self, buffer:&mut[Vector2<f32>]);
+    fn create_samples(&self) -> Vec<Vector2<f32>>;
 }
 struct Material {
     albedo : RGBSpectrum,
     metalness : f32,
     roughness : f32,
     emissiveness : f32
+}
+impl Material {
+    fn bounce_ray(&self, r: Ray3<f32>, gd: &GeomDiff, tp: &mut RGBSpectrum) -> Ray3<f32> {
+        Ray3::new(Point3::new(0f32,0f32,0f32), Vector3::new(1f32,1f32,1f32))
+    }
 }
 trait Integrator {
     fn radiance(&self, geom_diffs : &[GeomDiff], materials : &[Material], throughput: &[RGBSpectrum]);
@@ -68,25 +90,41 @@ fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Vec<Ve
     buffer.iter().map(|elem| { *elem / resolution }).collect()
 }
 
+
 //dynamic dispatch, no point in having static one here. Thus this function is expected to be quite big
 //all loops should be internal in the different components
 fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, shader: &Integrator, out : &mut Texture<RGBSpectrum>) {
     let elems = out.width * out.height;
-    let v = Vector2::new(0.0f32, 0.0f32);
-    let mut buffer = vec![v; elems as usize];
-    sampler.create_samples(&mut buffer[..]);
+
+    let samples = sampler.create_samples();
 
     //translate resoltuion to NDC
-    let ndc = resolution_to_ndc(&buffer[..], out.width as f32, out.height as f32);
+    let ndc = resolution_to_ndc(&samples[..], out.width as f32, out.height as f32);
 
+    //idx, ray tuples for processing
+    let mut ray_pool : Vec<(usize, Ray3<f32>)> = camera.create_rays(&ndc[..]).iter().map(|&e|e).
+    enumerate().collect();
 
-    let primary_rays = camera.create_rays(&ndc[..]);
+    let mut throughputs = vec![RGBSpectrum::white(); elems];
+    let materials : Vec<Material> = Vec::new();
+    for i in 0..3 {
+        let intersections : Vec<(usize, GeomDiff, Ray3<f32>)> = ray_pool.iter()
+        .filter_map(|&(idx, ray)| {
+            match scene.intersect(ray) {
+                Some(g) => Some((idx, g, ray)),
+                None => None
+            }
+        }).collect();
 
-    let geoms : Vec<GeomDiff> = primary_rays.iter().filter_map(|&ray| scene.intersect(ray))
-    .collect();
+        //choose secondary rays and light sampling rays
+        ray_pool = intersections.iter().map(|&(idx, ref geo, ray)| {
+            let ref material : Material = materials[geo.mat_id as usize];
+            //add the emissive part
+            add_to_texture(out, idx, throughputs[idx] * (material.albedo * material.emissiveness));
 
-    //shader part
-    let mats : Vec<Material> = Vec::new();
-    let throughput : Vec<RGBSpectrum> = Vec::new();
-    shader.radiance(&geoms[..], &mats[..], &throughput[..]);
+            //calculate the secondary ray and return it, update throughput
+            (idx, material.bounce_ray(ray, geo, &mut throughputs[idx]))
+        }).collect();
+    }
+
 }
