@@ -46,21 +46,27 @@ impl Intersectable for Sphere<f32> {
 }
 
 pub struct Scene {
-    pub objects: Vec<Sphere<f32>>
+    pub objects: Vec<(i32, Sphere<f32>)>
 }
 impl Intersectable for Scene {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
         let mut best_candidate : Option<GeomDiff> = None;
         for i in self.objects.iter() {
+            let mut isect = i.1.intersect(ray);
+            isect = match isect {
+                Some(g) => Some(GeomDiff {mat_id: i.0, .. g}),
+                None => None
+            };
+
             best_candidate = match best_candidate {
                 Some(geom) => {
-                    match i.intersect(ray) {
+                    match isect {
                         Some(new_g) => if new_g.d < geom.d { Some(new_g) }
                                        else { Some(geom) },
                         None => Some(geom)
                     }
                 },
-                None => i.intersect(ray)
+                None => isect
             }
         }
 
