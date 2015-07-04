@@ -4,8 +4,8 @@ pub trait Intersectable {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff>;
 }
 pub struct GeomDiff {
-    pos: Point3<f32>,
-    normal: Vector3<f32>,
+    pub pos: Point3<f32>,
+    pub n: Vector3<f32>,
     pub d: f32,
     pub mat_id: i32, //used to identify, who did the ray hit.
 }
@@ -39,7 +39,7 @@ impl Intersectable for Sphere<f32> {
 
         let poss = ray.origin.add_v(&ray.direction.mul_s(lesser));
         Some(GeomDiff { pos: poss,
-                        normal: poss.sub_p(&self.center).normalize(),
+                        n: poss.sub_p(&self.center).normalize(),
                         d: lesser,
                         mat_id: 0i32})
     }

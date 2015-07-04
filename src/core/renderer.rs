@@ -28,15 +28,16 @@ use core::spectrum::RGBSpectrum;
 use rand::Rng;
 use rand;
 use core::scene::{Intersectable, GeomDiff};
+use std::f32::consts::{PI, FRAC_1_PI};
 
-
-struct Texture<T> {
+pub struct Texture<T> {
     pub entries: Vec<T>,
     pub width: usize,
     pub height: usize
 }
 use std::ops::{Add, Sub, Mul};
-impl<T> Texture<T> {
+use std::clone::Clone;
+impl<T: Clone> Texture<T> {
     pub fn get(&self, x: usize, y: usize) -> &T {
         &self.entries[y * self.width + x]
     }
@@ -45,6 +46,9 @@ impl<T> Texture<T> {
     }
     pub fn set(&mut self, x: usize, y:usize, t: T) {
         self.entries[y * self.width + x] = t;
+    }
+    pub fn new(width: usize, height: usize, default: &T) -> Texture<T> {
+        Texture::<T> { width: width, height: height, entries: vec![default.clone(); width * height] }
     }
 }
 fn add_to_texture(out : &mut Texture<RGBSpectrum>, idx: usize, c : RGBSpectrum) {
@@ -70,7 +74,8 @@ impl Camera for PinholeCamera {
             let translated = ndc - Vector2::<f32>::new(0.5f32, 0.5f32);
             let translated_scaled = translated * self.field_of_view;
 
-            let direction = translated_scaled.extend(1.0f32).normalize();
+            let mut direction = translated_scaled.extend(1.0f32).normalize();
+            direction.z = -direction.z;
 
             Ray3::new(vector3_to_point(&self.cam_to_world.mul_v(&origin).truncate()),
                       (self.cam_to_world.mul_v(&direction.extend(0.0f32))).truncate())
@@ -89,7 +94,6 @@ impl PinholeCamera {
         let coeff_y = 1.0f32 / (90.0f32 - half_fov.y).to_radians().sin();
 
         let _fov = Vector2::new(coeff_x * half_fov.x.to_radians().sin(), coeff_y * half_fov.y.to_radians().sin());
-        println!("{} , {}", _fov.x, _fov.y);
 
         PinholeCamera { cam_to_world: m, field_of_view: _fov.mul_s(2.0f32) }
     }
@@ -119,9 +123,40 @@ struct Material {
     roughness : f32,
     emissiveness : f32
 }
+fn uniform_sample_hemisphere(seed: Vector2<f32>) -> (Vector3<f32>, f32) {
+    let z = seed.x;
+    let r = 0f32.max(1.0f32 - z * z).sqrt();
+    let phi = 2.0f32 * PI * seed.y;
+    let x = r * phi.cos();
+    let y = r * phi.sin();
+    (Vector3::new(x,y,z), FRAC_1_PI / 2.0f32)
+}
+
 impl Material {
-    fn bounce_ray(&self, r: Ray3<f32>, gd: &GeomDiff, tp: &mut RGBSpectrum) -> Ray3<f32> {
-        Ray3::new(Point3::new(0f32,0f32,0f32), Vector3::new(1f32,1f32,1f32))
+    fn eval_brdf(&self, wo: Vector3<f32>, wi: Vector3<f32>) -> RGBSpectrum {
+        self.albedo * FRAC_1_PI
+    }
+    //return spectrum and pdf
+    fn sample_brdf(&self, wo: Vector3<f32>, seed: Vector2<f32>) -> (RGBSpectrum, Vector3<f32>, f32) {
+        let (new_dir, pdf) = uniform_sample_hemisphere(seed);
+        (self.eval_brdf(wo, new_dir), new_dir, pdf)
+    }
+    fn bounce_ray(&self, r: Ray3<f32>, gd: &GeomDiff, seed: Vector2<f32>, tp: &mut RGBSpectrum) -> Ray3<f32> {
+        //convert everything to local shading space
+        let temp_u = if gd.n.x.abs() > 0.1f32 { Vector3::new(0.0f32, 1.0f32, 0.0f32) } else { Vector3::new(1.0f32, 0.0f32, 0.0f32) };
+        let u = temp_u.cross(&gd.n).normalize();
+        let v = gd.n.cross(&u);
+        let wo = -Vector3::new(r.direction.dot(&u), r.direction.dot(&v), r.direction.dot(&gd.n));
+
+        //shading calcs
+        let (spec, wi, pdf) = self.sample_brdf(wo, seed);
+        *tp = (*tp) * (spec * wi.z.abs() / pdf);
+
+        //convert back to world space
+        let dir = Vector3::new(u.x * wi.x + v.x * wi.y + gd.n.x * wi.z,
+                               u.y * wi.x + v.y * wi.y + gd.n.y * wi.z,
+                               u.z * wi.x + v.z * wi.y + gd.n.z * wi.z);
+        Ray3::new(gd.pos, dir)
     }
 }
 trait Integrator {
@@ -137,20 +172,24 @@ pub fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Ve
 
 //dynamic dispatch, no point in having static one here. Thus this function is expected to be quite big
 //all loops should be internal in the different components
-fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, shader: &Integrator, out : &mut Texture<RGBSpectrum>) {
+pub fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, out : &mut Texture<RGBSpectrum>) {
+    let mut rng = rand::thread_rng();
     let elems = out.width * out.height;
 
     let samples = sampler.create_samples(Vector2::new(out.width as i32, out.height as i32));
+    println!("Generated {} samples", elems);
 
     //translate resolution to NDC
     let ndc = resolution_to_ndc(&samples[..], out.width as f32, out.height as f32);
+    println!("Translated them to NDC");
 
     //idx, ray tuples for processing
     let mut ray_pool : Vec<(usize, Ray3<f32>)> = camera.create_rays(&ndc[..]).iter().map(|&e|e).
     enumerate().collect();
+    println!("Created {} primary rays", ray_pool.len());
 
     let mut throughputs = vec![RGBSpectrum::white(); elems];
-    let materials : Vec<Material> = Vec::new();
+    let materials : Vec<Material> = vec![Material {albedo: RGBSpectrum::white(), metalness: 0.0f32, roughness: 0.0f32, emissiveness: 0.6f32}];
     for i in 0..3 {
         let intersections : Vec<(usize, GeomDiff, Ray3<f32>)> = ray_pool.iter()
         .filter_map(|&(idx, ray)| {
@@ -159,7 +198,11 @@ fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, shader: &In
                 None => None
             }
         }).collect();
+        println!("From which {} intersected with geometry", intersections.len());
 
+        if i == 2 {
+            break;
+        }
         //choose secondary rays and light sampling rays
         ray_pool = intersections.iter().map(|&(idx, ref geo, ray)| {
             let ref material : Material = materials[geo.mat_id as usize];
@@ -167,8 +210,9 @@ fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, shader: &In
             add_to_texture(out, idx, throughputs[idx] * (material.albedo * material.emissiveness));
 
             //calculate the secondary ray and return it, update throughput
-            (idx, material.bounce_ray(ray, geo, &mut throughputs[idx]))
+            (idx, material.bounce_ray(ray, geo, Vector2::new(rng.gen::<f32>(), rng.gen::<f32>()), &mut throughputs[idx]))
         }).collect();
+        println!("Generated {} secondary rays for bounce {}", ray_pool.len(), i);
     }
 
 }
