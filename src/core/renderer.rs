@@ -22,10 +22,11 @@
 //10. XYZ to sRGB
 // (XYZ_pixel, sRGB graphs) -> sRGB_pixel
 
-#![feature(convert)]
 
-use cgmath::{Ray3, Vector2, Vector3, Point3};
+use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point3, Matrix4, Matrix, EuclideanVector};
 use core::spectrum::RGBSpectrum;
+use rand::Rng;
+use rand;
 
 struct GeomDiff {
     pos: Vector3<f32>,
@@ -44,7 +45,7 @@ struct Texture<T> {
     pub width: usize,
     pub height: usize
 }
-use std::ops::{Add, Sub};
+use std::ops::{Add, Sub, Mul};
 impl<T> Texture<T> {
     pub fn get(&self, x: usize, y: usize) -> &T {
         &self.entries[y * self.width + x]
@@ -65,9 +66,61 @@ fn add_to_texture(out : &mut Texture<RGBSpectrum>, idx: usize, c : RGBSpectrum) 
 trait Camera {
     fn create_rays(&self, NDC: &[Vector2<f32>]) -> Vec<Ray3<f32>>;
 }
+struct PinholeCamera {
+    cam_to_world: Matrix4<f32>,
+    field_of_view: Vector2<f32>
+}
+fn vector3_to_point(v : &Vector3<f32>) -> Point3<f32> {
+    Point3::new(v.x, v.y, v.z)
+}
+impl Camera for PinholeCamera {
+    fn create_rays(&self, NDC: &[Vector2<f32>]) -> Vec<Ray3<f32>> {
+        NDC.iter().map(|&ndc| {
+            let origin = Vector4::<f32>::new(0.0f32, 0.0f32, 0.0f32, 1.0f32);
+            let translated = ndc - Vector2::<f32>::new(0.5f32, 0.5f32);
+            let translated_scaled = translated * self.field_of_view;
+
+            let direction = translated_scaled.extend(1.0f32).normalize();
+
+            Ray3::new(vector3_to_point(&self.cam_to_world.mul_v(&origin).truncate()),
+                      (self.cam_to_world.mul_v(&direction.extend(0.0f32))).truncate())
+        }).collect()
+    }
+}
+impl PinholeCamera {
+    fn new(eye: &Point3<f32>, lookat: &Point3<f32>, fov: f32, aspect_ratio: f32) -> PinholeCamera {
+        let mut m = Matrix4::<f32>::look_at(eye, lookat, &Vector3::new(0.0f32, 1.0f32, 0.0f32));
+        m.invert_self();
+
+        let fov = Vector2::new(fov, fov / aspect_ratio);
+        let half_fov = fov.div_s(2.0f32);
+
+        let coeff_x = 1.0f32 / (90.0f32 - half_fov.x).to_radians().sin();
+        let coeff_y = 1.0f32 / (90.0f32 - half_fov.y).to_radians().sin();
+
+        let _fov = Vector2::new(coeff_x * half_fov.x.to_radians().sin(), coeff_y * half_fov.y.to_radians().sin());
+
+        PinholeCamera { cam_to_world: m, field_of_view: _fov }
+    }
+}
 
 trait Sampler {
-    fn create_samples(&self) -> Vec<Vector2<f32>>;
+    fn create_samples(&self, resolution: Vector2<i32>) -> Vec<Vector2<f32>>;
+}
+struct GenericSampler;
+impl Sampler for GenericSampler {
+    fn create_samples(&self, resolution: Vector2<i32>) ->  Vec<Vector2<f32>>{
+        let count = (resolution.x * resolution.y);
+        let mut samples = Vec::<Vector2<f32>>::new();
+        let mut rng = rand::thread_rng();
+        for i in 0..count {
+            let pixel = Vector2::new((i % resolution.x) as f32, (i / resolution.x) as f32);
+            let rand_range = Vector2::new(rng.gen::<f32>(), rng.gen::<f32>());
+
+            samples.push(pixel + rand_range);
+        }
+        samples
+    }
 }
 struct Material {
     albedo : RGBSpectrum,
@@ -96,9 +149,9 @@ fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Vec<Ve
 fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, shader: &Integrator, out : &mut Texture<RGBSpectrum>) {
     let elems = out.width * out.height;
 
-    let samples = sampler.create_samples();
+    let samples = sampler.create_samples(Vector2::new(out.width as i32, out.height as i32));
 
-    //translate resoltuion to NDC
+    //translate resolution to NDC
     let ndc = resolution_to_ndc(&samples[..], out.width as f32, out.height as f32);
 
     //idx, ray tuples for processing

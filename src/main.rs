@@ -1,3 +1,4 @@
+#![feature(float_extras)]
 
 extern crate cgmath;
 use cgmath::{Vector, Vector2, Vector3, Vector4, zero, vec2, vec3};
@@ -6,6 +7,7 @@ extern crate sdl2;
 use sdl2::pixels::Color;
 use sdl2::keyboard::Keycode;
 
+extern crate rand;
 
 mod core;
 use std::mem;

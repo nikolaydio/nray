@@ -7,3 +7,4 @@ authors = ["Nikolay Dionisov <nikolaydionisov@gmail.com>"]
 [dependencies]
 cgmath = "0.2.0"
 sdl2 = "0.5.0"
+rand = "0.3.0"
