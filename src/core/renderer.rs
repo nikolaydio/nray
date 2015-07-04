@@ -27,18 +27,8 @@ use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point3, Matrix4, Matrix, E
 use core::spectrum::RGBSpectrum;
 use rand::Rng;
 use rand;
+use core::scene::{Intersectable, GeomDiff};
 
-struct GeomDiff {
-    pos: Vector3<f32>,
-    normal: Vector3<f32>,
-    ts: Vector3<f32>,
-    ss: Vector3<f32>,
-    mat_id: i32, //used to identify, who did the ray hit.
-}
-
-trait Intersectable {
-    fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff>;
-}
 
 struct Texture<T> {
     pub entries: Vec<T>,
@@ -63,10 +53,10 @@ fn add_to_texture(out : &mut Texture<RGBSpectrum>, idx: usize, c : RGBSpectrum) 
 }
 
 
-trait Camera {
+pub trait Camera {
     fn create_rays(&self, NDC: &[Vector2<f32>]) -> Vec<Ray3<f32>>;
 }
-struct PinholeCamera {
+pub struct PinholeCamera {
     cam_to_world: Matrix4<f32>,
     field_of_view: Vector2<f32>
 }
@@ -88,7 +78,7 @@ impl Camera for PinholeCamera {
     }
 }
 impl PinholeCamera {
-    fn new(eye: &Point3<f32>, lookat: &Point3<f32>, fov: f32, aspect_ratio: f32) -> PinholeCamera {
+    pub fn new(eye: &Point3<f32>, lookat: &Point3<f32>, fov: f32, aspect_ratio: f32) -> PinholeCamera {
         let mut m = Matrix4::<f32>::look_at(eye, lookat, &Vector3::new(0.0f32, 1.0f32, 0.0f32));
         m.invert_self();
 
@@ -99,15 +89,16 @@ impl PinholeCamera {
         let coeff_y = 1.0f32 / (90.0f32 - half_fov.y).to_radians().sin();
 
         let _fov = Vector2::new(coeff_x * half_fov.x.to_radians().sin(), coeff_y * half_fov.y.to_radians().sin());
+        println!("{} , {}", _fov.x, _fov.y);
 
-        PinholeCamera { cam_to_world: m, field_of_view: _fov }
+        PinholeCamera { cam_to_world: m, field_of_view: _fov.mul_s(2.0f32) }
     }
 }
 
-trait Sampler {
+pub trait Sampler {
     fn create_samples(&self, resolution: Vector2<i32>) -> Vec<Vector2<f32>>;
 }
-struct GenericSampler;
+pub struct GenericSampler;
 impl Sampler for GenericSampler {
     fn create_samples(&self, resolution: Vector2<i32>) ->  Vec<Vector2<f32>>{
         let count = (resolution.x * resolution.y);
@@ -138,7 +129,7 @@ trait Integrator {
 }
 
 
-fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Vec<Vector2<f32>> {
+pub fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Vec<Vector2<f32>> {
     let resolution = Vector2::new(width, height);
     buffer.iter().map(|elem| { *elem / resolution }).collect()
 }
