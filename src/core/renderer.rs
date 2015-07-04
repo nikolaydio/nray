@@ -30,13 +30,18 @@ use rand;
 use core::scene::{Intersectable, GeomDiff};
 use std::f32::consts::{PI, FRAC_1_PI};
 
+use std::ops::{Add, Sub, Mul};
+use std::clone::Clone;
+
+#[derive(Clone)]
 pub struct Texture<T> {
     pub entries: Vec<T>,
     pub width: usize,
     pub height: usize
 }
-use std::ops::{Add, Sub, Mul};
-use std::clone::Clone;
+
+
+
 impl<T: Clone> Texture<T> {
     pub fn get(&self, x: usize, y: usize) -> &T {
         &self.entries[y * self.width + x]
@@ -117,11 +122,11 @@ impl Sampler for GenericSampler {
         samples
     }
 }
-struct Material {
-    albedo : RGBSpectrum,
-    metalness : f32,
-    roughness : f32,
-    emissiveness : f32
+pub struct Material {
+    pub albedo : RGBSpectrum,
+    pub metalness : f32,
+    pub roughness : f32,
+    pub emissiveness : f32
 }
 fn uniform_sample_hemisphere(seed: Vector2<f32>) -> (Vector3<f32>, f32) {
     let z = seed.x;
@@ -172,7 +177,7 @@ pub fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Ve
 
 //dynamic dispatch, no point in having static one here. Thus this function is expected to be quite big
 //all loops should be internal in the different components
-pub fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, out : &mut Texture<RGBSpectrum>) {
+pub fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, materials: &Vec<Material>, out : &mut Texture<RGBSpectrum>) {
     let mut rng = rand::thread_rng();
     let elems = out.width * out.height;
 
@@ -189,7 +194,7 @@ pub fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, out : &
     println!("Created {} primary rays", ray_pool.len());
 
     let mut throughputs = vec![RGBSpectrum::white(); elems];
-    let materials : Vec<Material> = vec![Material {albedo: RGBSpectrum::white(), metalness: 0.0f32, roughness: 0.0f32, emissiveness: 0.6f32}];
+
     for i in 0..3 {
         let intersections : Vec<(usize, GeomDiff, Ray3<f32>)> = ray_pool.iter()
         .filter_map(|&(idx, ray)| {
