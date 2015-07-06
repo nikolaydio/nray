@@ -80,7 +80,7 @@ impl Camera for PinholeCamera {
             let translated_scaled = translated * self.field_of_view;
 
             let mut direction = translated_scaled.extend(1.0f32).normalize();
-            direction.z = -direction.z;
+            direction = -direction;
 
             Ray3::new(vector3_to_point(&self.cam_to_world.mul_v(&origin).truncate()),
                       (self.cam_to_world.mul_v(&direction.extend(0.0f32))).truncate())
@@ -128,6 +128,28 @@ pub struct Material {
     pub roughness : f32,
     pub emissiveness : f32
 }
+fn fresnel_dielectric(cosi: f32, cost: f32, etai: RGBSpectrum, etat: RGBSpectrum) -> RGBSpectrum {
+    let Rparl = ((etat * cosi) - (etai * cost)) /
+                ((etat * cosi) + (etai * cost));
+    let Rperp = ((etai * cosi) - (etat * cost)) /
+                ((etai * cosi) + (etat * cost));
+    (Rparl*Rparl * Rperp*Rperp) / 2.0f32
+}
+fn fresnel_conductor(cosi: f32, eta: RGBSpectrum, k: RGBSpectrum) -> RGBSpectrum {
+    let tmp = (eta*eta + k*k) * cosi*cosi;
+    let Rparl2 = (tmp - (eta * cosi * 2.0f32) + 1.0f32) /
+                 (tmp + (eta * cosi * 2.0f32) + 1.0f32);
+    let tmp_f = eta * eta + k*k;
+    let Rperp2 = (tmp_f - (eta * cosi * 2.0f32) + cosi * cosi) /
+                 (tmp_f + (eta * cosi * 2.0f32) + cosi * cosi);
+    (Rparl2 + Rperp2) / 2.0f32
+}
+
+fn fresnel_approx_Eta(fr: RGBSpectrum) -> RGBSpectrum {
+    let reflectance = fr.clamp(0.0f32, 0.999f32);
+    (RGBSpectrum::new(1.0f32) + reflectance.sqrt()) /
+    (RGBSpectrum::new(1.0f32) - reflectance.sqrt())
+}
 fn uniform_sample_hemisphere(seed: Vector2<f32>) -> (Vector3<f32>, f32) {
     let z = seed.x;
     let r = 0f32.max(1.0f32 - z * z).sqrt();
@@ -136,17 +158,106 @@ fn uniform_sample_hemisphere(seed: Vector2<f32>) -> (Vector3<f32>, f32) {
     let y = r * phi.sin();
     (Vector3::new(x,y,z), FRAC_1_PI / 2.0f32)
 }
-
+//util funcs
+fn spherical_direction(st: f32, ct: f32, phi: f32) -> Vector3<f32> {
+    Vector3::new(st * phi.cos(), st * phi.sin(), ct)
+}
+fn same_hemisphere(w0: Vector3<f32>, w1: Vector3<f32>) -> bool {
+    (w0.z * w1.z) > 0.0f32
+}
 impl Material {
+    fn fresnel(&self,cosThetaH: f32) -> RGBSpectrum {
+        //schlick's approx
+        if self.metalness > 0.5 {
+            //cond
+            let k = RGBSpectrum::new(0.0f32);
+            fresnel_conductor(cosThetaH.abs(), fresnel_approx_Eta(self.albedo), k)
+        }else{
+            //diel
+            let (eta_i, eta_t) = (1.0f32, 1.5f32);
+            let cosi = cosThetaH.max(-1.0f32).max(1.0f32);
+            let entering = cosi > 0.0f32;
+            let (ei, et) = if entering {
+                (eta_i, eta_t)
+            }else {
+                (eta_t, eta_i)
+            };
+            let sint = ei/et * 0.0f32.max(1.0f32 - cosi * cosi).sqrt();
+            if sint >= 1.0f32 {
+                //itnernal reflection
+                RGBSpectrum::white()
+            }else {
+                let cost = 0.0f32.max(1.0f32 - sint * sint).sqrt();
+                fresnel_dielectric(cosi.abs(), cost, RGBSpectrum::new(ei), RGBSpectrum::new(et))
+            }
+        }
+    }
+    fn distribution(&self,wh: Vector3<f32>) -> f32 {
+        //Blinn distribution
+        let costhetah = wh.z.abs();
+        (self.roughness + 2.0f32) * FRAC_1_PI / 2.0f32 * costhetah.powf(self.roughness)
+    }
+    fn blinn_sample(&self, wo: Vector3<f32>, seed: Vector2<f32>) -> (Vector3<f32>, f32) {
+        let costheta = seed.x.powf(1.0f32 / (self.roughness+1.0f32));
+        let sintheta = 0.0f32.max(1.0f32 - costheta * costheta).sqrt();
+        let phi = seed.y * 2.0f32 * PI;
+        let mut wh = spherical_direction(costheta, sintheta, phi);
+        if !same_hemisphere(wo, wh) {
+            wh = -wh;
+        }
+        let wi = -wo + wh.mul_s(wo.dot(&wh) * 2.0f32);
+        let mut blinn_pdf = ((self.roughness + 1.0f32) * costheta.powf(self.roughness)) /
+                        (2.0f32 * PI * 4.0f32 * wo.dot(&wh));
+        if wo.dot(&wh) <= 0.0f32 {
+            blinn_pdf = 1.0f32
+        }
+        (wi, blinn_pdf)
+    }
+    fn G(&self,wo: Vector3<f32>, wi: Vector3<f32>, wh: Vector3<f32>) -> f32 {
+        //geometric attenuation form - selfshadowing
+        let NdotWh = wh.z.abs();
+        let NdotWo = wo.z.abs();
+        let NdotWi = wi.z.abs();
+        let WodotWh = wo.dot(&wh).abs();
+        1.0f32.min(2.0f32 * NdotWh * NdotWo / WodotWh)
+              .min(2.0f32 * NdotWh * NdotWi / WodotWh)
+    }
     fn eval_brdf(&self, wo: Vector3<f32>, wi: Vector3<f32>) -> RGBSpectrum {
-        self.albedo * FRAC_1_PI
+        let cosThetaO = wo.z.abs();
+        let cosThetaI = wi.z.abs();
+        if cosThetaI == 0.0f32 || cosThetaO == 0.0f32 {
+            return RGBSpectrum::black();
+        }
+        let mut wh = wi + wo;
+        if wh.x == 0.0f32 && wh.y == 0.0f32 && wh.z == 0.0f32 {
+            return RGBSpectrum::black();
+        }
+        wh = wh.normalize();
+        let cosThetaH = wi.dot(&wh);
+        let F = self.fresnel(cosThetaH);
+
+        self.albedo * self.distribution(wh) * self.G(wo, wi, wh) /
+            (4.0f32 * cosThetaI * cosThetaO);
+
+        self.albedo / PI
     }
     //return spectrum and pdf
-    fn sample_brdf(&self, wo: Vector3<f32>, seed: Vector2<f32>) -> (RGBSpectrum, Vector3<f32>, f32) {
-        let (new_dir, pdf) = uniform_sample_hemisphere(seed);
+    fn sample_brdf(&self, wo: Vector3<f32>, seed: Vector3<f32>) -> (RGBSpectrum, Vector3<f32>, f32) {
+        let (new_dir, pdf) = if false {
+            //reflect
+            let (dir, pdf) = self.blinn_sample(wo, seed.truncate());
+            (dir, pdf)
+        }else {
+            //diffuse
+            let (dir, pdf) = uniform_sample_hemisphere(seed.truncate());
+            (dir, pdf)
+        };
+        if !same_hemisphere(wo, new_dir) {
+            return (RGBSpectrum::black(), new_dir, pdf);
+        }
         (self.eval_brdf(wo, new_dir), new_dir, pdf)
     }
-    fn bounce_ray(&self, r: Ray3<f32>, gd: &GeomDiff, seed: Vector2<f32>, tp: &mut RGBSpectrum) -> Ray3<f32> {
+    fn bounce_ray(&self, r: Ray3<f32>, gd: &GeomDiff, seed: Vector3<f32>, tp: &mut RGBSpectrum) -> Ray3<f32> {
         //convert everything to local shading space
         let temp_u = if gd.n.x.abs() > 0.1f32 { Vector3::new(0.0f32, 1.0f32, 0.0f32) } else { Vector3::new(1.0f32, 0.0f32, 0.0f32) };
         let u = temp_u.cross(&gd.n).normalize();
@@ -155,7 +266,11 @@ impl Material {
 
         //shading calcs
         let (spec, wi, pdf) = self.sample_brdf(wo, seed);
-        *tp = (*tp) * (spec * wi.z.abs() / pdf);
+        let to_tp = spec * wi.z.abs() / pdf;
+        if !to_tp.plausable() {
+            //println!("A non plausable spec {} {} {}", to_tp.chans[0], to_tp.chans[1], to_tp.chans[2]);
+        };
+        *tp = (*tp) * to_tp;
 
         //convert back to world space
         let dir = Vector3::new(u.x * wi.x + v.x * wi.y + gd.n.x * wi.z,
@@ -212,10 +327,12 @@ pub fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, materia
         ray_pool = intersections.iter().map(|&(idx, ref geo, ray)| {
             let ref material : Material = materials[geo.mat_id as usize];
             //add the emissive part
+
             add_to_texture(out, idx, throughputs[idx] * (material.albedo * material.emissiveness));
+            throughputs[idx] = (throughputs[idx] - RGBSpectrum::new(material.emissiveness)).clamp(0.0f32, 1.0f32);
 
             //calculate the secondary ray and return it, update throughput
-            (idx, material.bounce_ray(ray, geo, Vector2::new(rng.gen::<f32>(), rng.gen::<f32>()), &mut throughputs[idx]))
+            (idx, material.bounce_ray(ray, geo, Vector3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>()), &mut throughputs[idx]))
         }).collect();
         println!("Generated {} secondary rays for bounce {}", ray_pool.len(), i);
     }

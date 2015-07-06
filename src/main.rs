@@ -52,10 +52,11 @@ fn present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RG
 					for y in (0..tex.height) {
 						for x in (0..tex.width) {
 							let offset = y*pitch + x*3;
-							let v = tex.get(x,y);
-							buffer[offset + 0] = ((v.chans[0] / divisor).min(1.0f32).max(0.0f32) * 255.0f32) as u8;
-							buffer[offset + 1] = ((v.chans[1] / divisor).min(1.0f32).max(0.0f32) * 255.0f32) as u8;
-							buffer[offset + 2] = ((v.chans[2] / divisor).min(1.0f32).max(0.0f32) * 255.0f32) as u8;
+							let v : RGBSpectrum = *tex.get(x,y) / divisor;
+							let (r,g,b) = v.to_sRGB();
+							buffer[offset + 0] = r;
+							buffer[offset + 1] = g;
+							buffer[offset + 2] = b;
 						}
 					}
 				}).unwrap();
@@ -65,7 +66,7 @@ fn present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RG
 			},
 			Err(_) => ()
 		}
-		std::thread::sleep_ms(240);
+		std::thread::sleep_ms(120);
 	}
 }
 
@@ -79,22 +80,23 @@ fn main() {
 	let c = PinholeCamera::new(&Point3::new(0.0f32, 0.0f32, 0.0f32), &Point3::new(0.0f32, 0.0f32, 1.0f32), 60.0f32, resolution.x as f32 / resolution.y as f32);
 
 	let scene = Scene {
-		objects: vec![(0, Sphere { center: Point3::new(0.0f32, 0.0f32, 5.0f32), radius: 1.0f32 }) ,
-					  (1, Sphere { center: Point3::new(3.0f32, 0.0f32, 3.0f32), radius: 0.5f32 }) ,
-					  (1, Sphere { center: Point3::new(-7.0f32, 0.0f32, 0.0f32), radius: 0.5f32 }) ]
+		objects: vec![(0, Sphere { center: Point3::new(0.0f32, 0.0f32, 7.0f32), radius: 1.0f32 }) ,
+					  (1, Sphere { center: Point3::new(3.0f32, 0.0f32, 3.0f32), radius: 5.5f32 }) ,
+					  (1, Sphere { center: Point3::new(-7.0f32, 0.0f32, 0.0f32), radius: 0.5f32 }),
+					  (0, Sphere { center: Point3::new(0.0f32, -3.0f32, 7.0f32), radius: 1.0f32 }) ]
 		};
 
-	let materials : Vec<Material> = vec![Material {albedo: RGBSpectrum::white(), metalness: 0.0f32, roughness: 0.0f32, emissiveness: 0.0f32},
+	let materials : Vec<Material> = vec![Material {albedo: RGBSpectrum::white(), metalness: 0.3f32, roughness: 0.0001f32, emissiveness: 0.0f32},
 										Material {albedo: RGBSpectrum::white(), metalness: 0.0f32, roughness: 0.0f32, emissiveness: 1.0f32}];
 
 
 	//render it
 	let mut working_tex = Texture::<RGBSpectrum>::new(resolution.x, resolution.y, &RGBSpectrum::black());
-	let samples_per_pixel = 1024;
+	//let samples_per_pixel = 024;
 	let (tx, rx) = mpsc::channel();
 
 	std::thread::spawn(move || {
-		for i in 0..samples_per_pixel {
+		for i in 0.. {
 
 			render(&s, &c, &scene, &materials, &mut working_tex);
 			if i % 4 == 0 {
