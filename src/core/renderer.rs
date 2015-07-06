@@ -27,7 +27,7 @@ use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point3, Matrix4, Matrix, E
 use core::spectrum::RGBSpectrum;
 use rand::Rng;
 use rand;
-use core::scene::{Intersectable, GeomDiff};
+use core::intersectable::{Intersectable, GeomDiff};
 use std::f32::consts::{PI, FRAC_1_PI};
 
 use std::ops::{Add, Sub, Mul};

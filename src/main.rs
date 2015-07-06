@@ -71,20 +71,21 @@ fn present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RG
 }
 
 use core::renderer::{render, Sampler, GenericSampler, Camera, PinholeCamera, resolution_to_ndc, Texture, Material};
-use core::scene::{Intersectable, Scene};
+use core::intersectable::{Intersectable, BruteForceContainer, ShadedIntersectable, Face};
 use core::spectrum::RGBSpectrum;
-use std::sync::{Arc, Mutex, RwLock, mpsc};
+use std::sync::{mpsc};
 fn main() {
 	let resolution = Vector2::new(800, 600);
 	let s = GenericSampler;
 	let c = PinholeCamera::new(&Point3::new(0.0f32, 0.0f32, 0.0f32), &Point3::new(0.0f32, 0.0f32, 1.0f32), 60.0f32, resolution.x as f32 / resolution.y as f32);
 
-	let scene = Scene {
-		objects: vec![(0, Sphere { center: Point3::new(0.0f32, 0.0f32, 7.0f32), radius: 1.0f32 }) ,
-					  (1, Sphere { center: Point3::new(3.0f32, 0.0f32, 3.0f32), radius: 5.5f32 }) ,
-					  (1, Sphere { center: Point3::new(-7.0f32, 0.0f32, 0.0f32), radius: 0.5f32 }),
-					  (0, Sphere { center: Point3::new(0.0f32, -3.0f32, 7.0f32), radius: 1.0f32 }) ]
-		};
+	let scene = BruteForceContainer {
+		items: vec![
+			ShadedIntersectable { material_index: 0, intersectable: Sphere { center: Point3::new(0.0f32, 0.0f32, 7.0f32), radius: 1.0f32 }},
+			ShadedIntersectable { material_index: 1, intersectable: Sphere { center: Point3::new(3.0f32, 0.0f32, 3.0f32), radius: 5.5f32 }},
+			ShadedIntersectable { material_index: 1, intersectable: Sphere { center: Point3::new(-7.0f32, 0.0f32, 0.0f32), radius: 0.5f32 }},
+			ShadedIntersectable { material_index: 0, intersectable: Sphere { center: Point3::new(0.0f32, -3.0f32, 7.0f32), radius: 1.0f32 }},
+		]};
 
 	let materials : Vec<Material> = vec![Material {albedo: RGBSpectrum::white(), metalness: 0.3f32, roughness: 0.0001f32, emissiveness: 0.0f32},
 										Material {albedo: RGBSpectrum::white(), metalness: 0.0f32, roughness: 0.0f32, emissiveness: 1.0f32}];
