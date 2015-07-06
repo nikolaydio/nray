@@ -4,6 +4,13 @@ use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point, Point3, Matrix4, Ma
 pub trait Intersectable {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff>;
 }
+impl<'a> Intersectable for &'a Intersectable {
+    fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
+        (*self).intersect(ray)
+    }
+}
+//unsafe impl<'a> Sync for Intersectable { }
+
 
 pub struct GeomDiff {
     pub pos: Point3<f32>,
@@ -65,7 +72,7 @@ pub struct BruteForceContainer<T: Intersectable> {
     pub items: Vec<T>
 }
 
-impl<T:Intersectable> Intersectable for BruteForceContainer<T> {
+impl<T: Intersectable> Intersectable for BruteForceContainer<T> {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
         let mut best_candidate : Option<GeomDiff> = None;
         for i in self.items.iter() {
@@ -90,9 +97,11 @@ impl<T:Intersectable> Intersectable for BruteForceContainer<T> {
 
 
 
+
 pub struct Face {
     pub points: [Point3<f32>; 3]
 }
+
 
 impl Intersectable for Face {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
