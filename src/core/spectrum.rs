@@ -44,6 +44,13 @@ macro_rules! spectrum_def {
                 let cl = self.clamp(0.0f32, 1.0f32) * 255.0f32;
                 (cl.chans[0] as u8, cl.chans[1] as u8, cl.chans[2] as u8)
             }
+            pub fn from_sRGB(r: u8, g: u8, b: u8) -> $name {
+                let mut v = $name::new(0.0f32);
+                v.chans[0] = (r as f32) / 255.0f32;
+                v.chans[1] = (g as f32) / 255.0f32;
+                v.chans[2] = (b as f32) / 255.0f32;
+                v
+            }
         }
         impl Add for $name {
             type Output = $name;

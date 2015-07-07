@@ -88,9 +88,12 @@ impl Camera for PinholeCamera {
     }
 }
 impl PinholeCamera {
-    pub fn new(eye: &Point3<f32>, lookat: &Point3<f32>, fov: f32, aspect_ratio: f32) -> PinholeCamera {
-        let mut m = Matrix4::<f32>::look_at(eye, lookat, &Vector3::new(0.0f32, 1.0f32, 0.0f32));
-        m.invert_self();
+    pub fn new_hf(eye: &Point3<f32>, lookat: &Point3<f32>, fov: f32, aspect_ratio: f32) -> PinholeCamera {
+        let m = Matrix4::<f32>::look_at(eye, lookat, &Vector3::new(0.0f32, 1.0f32, 0.0f32));
+        PinholeCamera::new(&m, fov, aspect_ratio)
+    }
+    pub fn new(cam_transform: &Matrix4<f32>, fov: f32, aspect_ratio: f32) -> PinholeCamera {
+        let m = cam_transform.invert().unwrap();
 
         let fov = Vector2::new(fov, fov / aspect_ratio);
         let half_fov = fov.div_s(2.0f32);

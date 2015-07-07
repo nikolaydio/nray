@@ -111,7 +111,7 @@ impl Intersectable for Face {
         let s1 = ray.direction.cross(&e2);
         let divisor = s1.dot(&e1);
 
-        if divisor.abs() < 0.000001 {
+        if divisor.abs() < 0.00001f32 {
             return None;
         }
         let invDivisor = 1.0f32 / divisor;
@@ -123,12 +123,12 @@ impl Intersectable for Face {
         }
         let s2 = d.cross(&e1);
         let b2 = ray.direction.dot(&s2) * invDivisor;
-        if b2 < 0.0f32 || b2 > 1.0f32 {
+        if b2 < 0.0f32 || b1 + b2 > 1.0f32 {
             return None;
         }
         let t = e2.dot(&s2) * invDivisor;
 
-        if t < 0.0001 {
+        if t < 0.00001f32 {
             return None;
         }
 
