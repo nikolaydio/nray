@@ -1,4 +1,4 @@
-use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point, Point3, Matrix4, Matrix, EuclideanVector, Sphere};
+use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point, Point3, Matrix4, Matrix, EuclideanVector, Sphere, Transform};
 
 
 pub trait Intersectable {
@@ -68,6 +68,7 @@ impl<T:Intersectable> Intersectable for ShadedIntersectable<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct BruteForceContainer<T: Intersectable> {
     pub items: Vec<T>
 }
@@ -97,7 +98,7 @@ impl<T: Intersectable> Intersectable for BruteForceContainer<T> {
 
 
 
-
+#[derive(Clone)]
 pub struct Face {
     pub points: [Point3<f32>; 3]
 }
@@ -136,5 +137,32 @@ impl Intersectable for Face {
                    d: t,
                    n: e1.cross(&e2).normalize() ,
                    mat_id: 0})
+    }
+}
+
+pub struct ObjTransform<T : Intersectable> {
+    pub tform: Matrix4<f32>,
+    pub next: T
+}
+impl<T : Intersectable> Intersectable for ObjTransform<T> {
+    fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
+        //transform ray into obj space
+        let inner_ray = Ray3::new(Point3::from_vec(&self.tform.mul_v(&(Point3::to_vec(&ray.origin).extend(1.0f32))).truncate()),
+                                self.tform.mul_v(&ray.direction.extend(0.0f32)).truncate());
+        let isect = self.next.intersect(inner_ray);
+
+        match isect {
+            Some(geo) =>  {
+                let tm = self.tform.invert().unwrap();
+                let outer_pos = Point3::from_vec(&tm.mul_v(&Point3::to_vec(&geo.pos).extend(1.0f32)).truncate());
+                Some(GeomDiff {
+                    pos: outer_pos,
+                    n: tm.mul_v(&geo.n.extend(0.0f32)).truncate().normalize(),
+                    d: outer_pos.sub_p(&ray.origin).length(),
+                    mat_id: geo.mat_id
+                    })
+            },
+            None => None
+        }
     }
 }

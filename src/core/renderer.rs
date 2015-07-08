@@ -93,8 +93,8 @@ impl PinholeCamera {
         PinholeCamera::new(&m, fov, aspect_ratio)
     }
     pub fn new(cam_transform: &Matrix4<f32>, fov: f32, aspect_ratio: f32) -> PinholeCamera {
+        //println!("{:?}", cam_transform);
         let m = cam_transform.invert().unwrap();
-
         let fov = Vector2::new(fov, fov / aspect_ratio);
         let half_fov = fov.div_s(2.0f32);
 
@@ -295,21 +295,21 @@ pub fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Ve
 
 //dynamic dispatch, no point in having static one here. Thus this function is expected to be quite big
 //all loops should be internal in the different components
-pub fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, materials: &Vec<Material>, out : &mut Texture<RGBSpectrum>) {
+pub fn render<T: Intersectable>(sampler: &Sampler, camera: &Camera, scene: &T, materials: &Vec<Material>, out : &mut Texture<RGBSpectrum>) {
     let mut rng = rand::thread_rng();
     let elems = out.width * out.height;
 
     let samples = sampler.create_samples(Vector2::new(out.width as i32, out.height as i32));
-    println!("Generated {} samples", elems);
+    //println!("Generated {} samples", elems);
 
     //translate resolution to NDC
     let ndc = resolution_to_ndc(&samples[..], out.width as f32, out.height as f32);
-    println!("Translated them to NDC");
+    //println!("Translated them to NDC");
 
     //idx, ray tuples for processing
     let mut ray_pool : Vec<(usize, Ray3<f32>)> = camera.create_rays(&ndc[..]).iter().map(|&e|e).
     enumerate().collect();
-    println!("Created {} primary rays", ray_pool.len());
+    //println!("Created {} primary rays", ray_pool.len());
 
     let mut throughputs = vec![RGBSpectrum::white(); elems];
 
@@ -321,7 +321,7 @@ pub fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, materia
                 None => None
             }
         }).collect();
-        println!("From which {} intersected with geometry", intersections.len());
+        //println!("From which {} intersected with geometry", intersections.len());
 
         if i == 2 {
             break;
@@ -332,12 +332,15 @@ pub fn render(sampler: &Sampler, camera: &Camera, scene: &Intersectable, materia
             //add the emissive part
 
             add_to_texture(out, idx, throughputs[idx] * (material.albedo * material.emissiveness));
+            //add_to_texture(out, idx, RGBSpectrum::from_sRGB((geo.n.x * 255.0f32) as u8, (geo.n.y * 255.0f32) as u8, (geo.n.z * 255.0f32) as u8));
+
             throughputs[idx] = (throughputs[idx] - RGBSpectrum::new(material.emissiveness)).clamp(0.0f32, 1.0f32);
+            //throughputs[idx] = RGBSpectrum::black();
 
             //calculate the secondary ray and return it, update throughput
             (idx, material.bounce_ray(ray, geo, Vector3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>()), &mut throughputs[idx]))
         }).collect();
-        println!("Generated {} secondary rays for bounce {}", ray_pool.len(), i);
+        //println!("Generated {} secondary rays for bounce {}", ray_pool.len(), i);
     }
 
 }

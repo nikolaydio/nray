@@ -39,7 +39,7 @@ macro_rules! spectrum_def {
             }
             pub fn to_sRGB(&self) -> (u8, u8, u8) {
                 if !self.plausable() {
-                    println!("Attemp to plot an inplausable spectrum.");
+                    //println!("Attemp to plot an inplausable spectrum.");
                 }
                 let cl = self.clamp(0.0f32, 1.0f32) * 255.0f32;
                 (cl.chans[0] as u8, cl.chans[1] as u8, cl.chans[2] as u8)
