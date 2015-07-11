@@ -1,14 +1,43 @@
-use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point, Point3, Matrix4, Matrix, EuclideanVector, Sphere, Transform};
+use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point, Point3, Matrix4, Matrix, EuclideanVector, Sphere, Transform,
+Aabb, Aabb3};
+use std::f32;
+use std::f32::INFINITY;
+use std::f32::NEG_INFINITY;
 
+pub fn intersect_ray_aabb(ray: Ray3<f32>, bbox: Aabb3<f32>) -> bool {
+    let dirfrac = Vector3::from_value(1.0f32).div_v(&ray.direction);
 
+    let t1 = (bbox.min().x - ray.origin.x)*dirfrac.x;
+    let t2 = (bbox.max().x - ray.origin.x)*dirfrac.x;
+    let t3 = (bbox.min().y - ray.origin.y)*dirfrac.y;
+    let t4 = (bbox.max().y - ray.origin.y)*dirfrac.y;
+    let t5 = (bbox.min().z - ray.origin.z)*dirfrac.z;
+    let t6 = (bbox.max().z - ray.origin.z)*dirfrac.z;
+
+    let tmin = t1.min(t2).max(t3.min(t4)).max(t5.min(t6));
+    let tmax = t1.max(t2).min(t3.max(t4)).min(t5.max(t6));
+
+    if (tmax < 0.0f32) {
+        return false;
+    }
+    if (tmin > tmax){
+        return false;
+    }
+    return true;
+}
 pub trait Intersectable {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff>;
+    fn bounding_box(&self) -> Aabb3<f32>;
 }
 impl<'a> Intersectable for &'a Intersectable {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
         (*self).intersect(ray)
     }
+    fn bounding_box(&self) -> Aabb3<f32> {
+        (*self).bounding_box()
+    }
 }
+
 //unsafe impl<'a> Sync for Intersectable { }
 
 
@@ -52,9 +81,13 @@ impl Intersectable for Sphere<f32> {
                         d: lesser,
                         mat_id: 0i32})
     }
+    fn bounding_box(&self) -> Aabb3<f32> {
+        let diag = Vector3::new(self.radius, self.radius, self.radius);
+        Aabb3::new(self.center.add_v(&(-diag)), self.center.add_v(&diag))
+    }
 }
 
-
+#[derive(Clone)]
 pub struct ShadedIntersectable<T: Intersectable> {
     pub material_index: i32,
     pub intersectable: T
@@ -65,6 +98,9 @@ impl<T:Intersectable> Intersectable for ShadedIntersectable<T> {
             Some(geo) => Some( GeomDiff{mat_id: self.material_index, .. geo}),
             None => None
         }
+    }
+    fn bounding_box(&self) -> Aabb3<f32> {
+        self.intersectable.bounding_box()
     }
 }
 
@@ -92,6 +128,13 @@ impl<T: Intersectable> Intersectable for BruteForceContainer<T> {
         }
 
         best_candidate
+    }
+    fn bounding_box(&self) -> Aabb3<f32> {
+        let start_bbox = Aabb3::new(Point3::new(::std::f32::INFINITY, ::std::f32::INFINITY, ::std::f32::INFINITY),
+                                    Point3::new(::std::f32::NEG_INFINITY, ::std::f32::NEG_INFINITY, ::std::f32::NEG_INFINITY));
+        self.items.iter().fold(start_bbox, |acc, item| {
+            item.bounding_box().grow(acc.min()).grow(acc.max())
+        })
     }
 }
 
@@ -138,8 +181,12 @@ impl Intersectable for Face {
                    n: e1.cross(&e2).normalize() ,
                    mat_id: 0})
     }
+    fn bounding_box(&self) -> Aabb3<f32> {
+        Aabb3::new(self.points[0], self.points[1]).grow(&self.points[2])
+    }
 }
 
+#[derive(Clone)]
 pub struct ObjTransform<T : Intersectable> {
     pub tform: Matrix4<f32>,
     pub next: T
@@ -164,5 +211,18 @@ impl<T : Intersectable> Intersectable for ObjTransform<T> {
             },
             None => None
         }
+    }
+    fn bounding_box(&self) -> Aabb3<f32> {
+        let bbox = self.next.bounding_box();
+        let tm = self.tform.invert().unwrap();
+        let corners = bbox.to_corners();
+
+        let start_bbox = Aabb3::new(Point3::new(::std::f32::INFINITY, ::std::f32::INFINITY, ::std::f32::INFINITY),
+                                    Point3::new(::std::f32::NEG_INFINITY, ::std::f32::NEG_INFINITY, ::std::f32::NEG_INFINITY));
+        corners.iter().fold(start_bbox, |acc, &item| {
+            let p = Point3::to_vec(&item).extend(1.0f32);
+            let world_space_corner = Point3::from_vec(&tm.mul_v(&p).truncate());
+            acc.grow(&world_space_corner)
+        })
     }
 }

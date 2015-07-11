@@ -309,7 +309,7 @@ pub fn render<T: Intersectable>(sampler: &Sampler, camera: &Camera, scene: &T, m
     //idx, ray tuples for processing
     let mut ray_pool : Vec<(usize, Ray3<f32>)> = camera.create_rays(&ndc[..]).iter().map(|&e|e).
     enumerate().collect();
-    //println!("Created {} primary rays", ray_pool.len());
+    println!("Created {} primary rays", ray_pool.len());
 
     let mut throughputs = vec![RGBSpectrum::white(); elems];
 
@@ -321,7 +321,7 @@ pub fn render<T: Intersectable>(sampler: &Sampler, camera: &Camera, scene: &T, m
                 None => None
             }
         }).collect();
-        //println!("From which {} intersected with geometry", intersections.len());
+        println!("From which {} intersected with geometry", intersections.len());
 
         if i == 2 {
             break;

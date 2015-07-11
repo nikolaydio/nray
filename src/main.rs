@@ -1,7 +1,9 @@
 #![feature(float_extras)]
-
+extern crate time;
 extern crate cgmath;
-use cgmath::{Vector, Vector2, Vector3, Vector4, Point, zero, vec2, vec3, Point3, Sphere, Ray3, Matrix4, Matrix};
+extern crate rand;
+use cgmath::{Vector, Vector2, Vector3, Vector4, Point, zero, vec2, vec3, Point3, Sphere, Ray3, Matrix4, Matrix, Aabb, Aabb3, EuclideanVector};
+use core::bvh::{BVH};
 
 extern crate sdl2;
 use sdl2::pixels::Color;
@@ -9,16 +11,40 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 
-extern crate rand;
 
 mod core;
-use std::mem;
+mod tests;
 
-fn headless_present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RGBSpectrum>)>) {
+use std::mem;
+use std::f32;
+use std::f32::INFINITY;
+use std::f32::NEG_INFINITY;
+
+use core::renderer::{render, Sampler, GenericSampler, Camera, PinholeCamera, resolution_to_ndc, Texture, Material};
+use core::intersectable::{Intersectable, BruteForceContainer, ShadedIntersectable, Face, ObjTransform, GeomDiff};
+use core::spectrum::RGBSpectrum;
+use std::sync::{mpsc};
+use std::io::{self, BufRead, StdinLock};
+
+
+use std::rc::Rc;
+use std::borrow::Borrow;
+impl<T: Intersectable+Clone> Intersectable for Rc<BVH<T>> {
+	fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
+		let bvh: &BVH<T> = self.borrow();
+		bvh.intersect(ray)
+	}
+	fn bounding_box(&self) -> Aabb3<f32> {
+		let bvh: &BVH<T> = self.borrow();
+		bvh.bounding_box()
+	}
+}
+
+fn headless_present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RGBSpectrum>, bool)>) {
 	loop {
 		let data = rx.recv();
 		match data {
-			Ok((times, tex)) => {
+			Ok((times, tex, done)) => {
 				let divisor = times as f32;
 				for y in (0..tex.height) {
 					for x in (0..tex.width) {
@@ -27,12 +53,15 @@ fn headless_present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, T
 						println!("{} {} {}", r, g, b);
 					}
 				}
+				if done {
+					break;
+				}
 			},
 			Err(E) => break
 		}
 	}
 }
-fn present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RGBSpectrum>)>) {
+fn present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RGBSpectrum>, bool)>) {
 	let mut sdl_context = sdl2::init().video().unwrap();
 
 	let window = sdl_context.window("nray", res.x as u32, res.y as u32)
@@ -62,7 +91,7 @@ fn present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RG
 		let data = rx.try_recv();
 		match data {
 			Ok(d) => {
-				let (times, tex) = d;
+				let (times, tex, done) = d;
 				let mut texture = renderer.create_texture_streaming(PixelFormatEnum::RGB24, (tex.width as u32, tex.height as u32)).unwrap();
 
 				let divisor = times as f32;
@@ -86,13 +115,9 @@ fn present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RG
 		}
 		std::thread::sleep_ms(120);
 	}
+	std::process::exit(0);
 }
 
-use core::renderer::{render, Sampler, GenericSampler, Camera, PinholeCamera, resolution_to_ndc, Texture, Material};
-use core::intersectable::{Intersectable, BruteForceContainer, ShadedIntersectable, Face, ObjTransform};
-use core::spectrum::RGBSpectrum;
-use std::sync::{mpsc};
-use std::io::{self, BufRead, StdinLock};
 
 
 //util functions for read_input_data
@@ -139,7 +164,8 @@ fn read_materials<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> Vec<Mater
 	}
 	materials
 }
-fn read_a_mesh<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> BruteForceContainer<Face> {
+
+fn read_a_mesh<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> BVH<Face> {
 	let count : u32 = read_value(rdr);
 	let mut faces = Vec::<Face>::new();
 	for i in 0..count {
@@ -148,22 +174,22 @@ fn read_a_mesh<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> BruteForceCo
 		let p2 : Vector3<f32> = read_vector3(rdr);
 		faces.push(Face { points: [Point3::<f32>::from_vec(&p0), Point3::<f32>::from_vec(&p1), Point3::<f32>::from_vec(&p2)] });
 	}
-	BruteForceContainer {
-		items: faces
-	}
+	BVH::new(4, &mut faces)
 }
-fn read_meshes<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> Vec<BruteForceContainer<Face>> {
-	let mut meshes = Vec::<BruteForceContainer<Face>>::new();
+
+fn read_meshes<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> Vec<Rc<BVH<Face>>> {
+	let mut meshes = Vec::<Rc<BVH<Face>>>::new();
 	let count : u32 = read_value(rdr);
 	for i in 0..count {
-		meshes.push(read_a_mesh(rdr));
+		meshes.push(Rc::new(read_a_mesh(rdr)));
 	}
 	meshes
 }
-fn read_scene<'a, I: std::iter::Iterator<Item=String>>(rdr: &mut I, meshes: & Vec<BruteForceContainer<Face>>)
-		-> BruteForceContainer<ShadedIntersectable<ObjTransform<BruteForceContainer<Face>>>> {
+
+fn read_scene<'a, I: std::iter::Iterator<Item=String>>(rdr: &mut I, meshes: & Vec<Rc<BVH<Face>>>)
+		-> BruteForceContainer<ShadedIntersectable<ObjTransform<Rc<BVH<Face>>>>> {
 	let count : u32 = read_value(rdr);
-	let mut objs = Vec::<ShadedIntersectable<ObjTransform<BruteForceContainer<Face>>>>::new();
+	let mut objs = Vec::<ShadedIntersectable<ObjTransform<Rc<BVH<Face>>>>>::new();
 	//println!("{}", count);
 	for i in 0..count {
 		let mat_id : i32 = read_value(rdr);
@@ -176,12 +202,13 @@ fn read_scene<'a, I: std::iter::Iterator<Item=String>>(rdr: &mut I, meshes: & Ve
 					next: meshes[mesh_id as usize].clone() }
 				});
 	}
-	BruteForceContainer{ items: objs }
+	//BVH::new(4, &mut objs)
+	BruteForceContainer { items: objs }
 }
 
 //returns samples, resolution, camera transform, fov, materials, geometry(intersectable/scene)
 fn read_input_data(source: StdinLock)
-	-> (u32, Vector2<usize>, Matrix4<f32>, f32, Vec<Material>, BruteForceContainer<ShadedIntersectable<ObjTransform<BruteForceContainer<Face>>>>) {
+	-> (u32, Vector2<usize>, Matrix4<f32>, f32, Vec<Material>, BruteForceContainer<ShadedIntersectable<ObjTransform<Rc<BVH<Face>>>>>) {
 	let mut rdr = source.lines().flat_map(|e| e.unwrap().split_terminator(' ').map(|s| s.to_string()).collect::<Vec<String>>());
 	//read magic
 	let mgc : String = rdr.next().unwrap();
@@ -199,7 +226,7 @@ fn read_input_data(source: StdinLock)
 
 	let materials : Vec<Material> = read_materials(&mut rdr);
 
-	let meshes : Vec<BruteForceContainer<Face>> = read_meshes(&mut rdr);
+	let meshes : Vec<Rc<BVH<Face>>> = read_meshes(&mut rdr);
 
 
 	let geo = read_scene(&mut rdr, &meshes);
@@ -208,14 +235,19 @@ fn read_input_data(source: StdinLock)
 
 use std::env;
 
+
+
 fn main() {
+
 	let sin = io::stdin();
 	let (samples, resolution, cam_transform, fov, materials, scene) = read_input_data(sin.lock());
-	//println!("Scene - loaded.");
 	let headless = match env::args().nth(1) {
 		Some(txt) => txt == "headless",
 		None => false
 	};
+	if !headless {
+		println!("Scene - loaded.");
+	}
 
 	let s = GenericSampler;
 	//let c = PinholeCamera::new_hf(&Point3::new(0.0f32, 2.0f32, -4.0f32), &Point3::new(0.0f32, 0.0f32, 1.0f32), 60.0f32, resolution.x as f32 / resolution.y as f32);
@@ -241,15 +273,18 @@ fn main() {
 		}
 	});
 	for i in 0..samples {
+		let start = time::precise_time_s();
 		render(&s, &c, &scene, &materials, &mut working_tex);
+		let end = time::precise_time_s();
+		println!("Frame time {}", end - start);
 		if headless {
-			if i % 4 == 0 {
-				tx.send((i+1, working_tex.clone()));
-			}
+			//if i % 4 == 0 {
+				tx.send((i+1, working_tex.clone(), i == samples-1));
+			//}
 		}else{
-			if i % 4 == 0 {
-				tx.send((i+1, working_tex.clone()));
-			}
+			//if i % 4 == 0 {
+				tx.send((i+1, working_tex.clone(), i == samples-1));
+			//}
 		}
 	}
 	th.join();
