@@ -246,19 +246,19 @@ impl Material {
     }
     //return spectrum and pdf
     fn sample_brdf(&self, wo: Vector3<f32>, seed: Vector3<f32>) -> (RGBSpectrum, Vector3<f32>, f32) {
-        let (new_dir, pdf) = if false {
+        let (color, new_dir, pdf) = if self.metalness > seed.x {
             //reflect
-            let (dir, pdf) = self.blinn_sample(wo, seed.truncate());
-            (dir, pdf)
+            let (dir, pdf) = (Vector3::new(-wo.x, -wo.y, wo.z), 1.0f32);
+            (RGBSpectrum::white().lerp(&self.albedo, self.metalness), dir, pdf * self.metalness)
         }else {
             //diffuse
             let (dir, pdf) = uniform_sample_hemisphere(seed.truncate());
-            (dir, pdf)
+            (self.albedo, dir, pdf * (1.0f32 - self.metalness))
         };
         if !same_hemisphere(wo, new_dir) {
             return (RGBSpectrum::black(), new_dir, pdf);
         }
-        (self.eval_brdf(wo, new_dir), new_dir, pdf)
+        (color, new_dir, pdf)
     }
     fn bounce_ray(&self, r: Ray3<f32>, gd: &GeomDiff, seed: Vector3<f32>, tp: &mut RGBSpectrum) -> Ray3<f32> {
         //convert everything to local shading space

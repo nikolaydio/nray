@@ -51,6 +51,13 @@ macro_rules! spectrum_def {
                 v.chans[2] = (b as f32) / 255.0f32;
                 v
             }
+            pub fn lerp(&self, sec: &$name, p: f32) -> $name {
+                let mut v = $name { chans: self.chans };
+                for i in 0..$chans {
+                    v.chans[i] += (sec.chans[i]-v.chans[i])*p;
+                }
+                v
+            }
         }
         impl Add for $name {
             type Output = $name;

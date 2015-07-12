@@ -29,6 +29,7 @@ pub fn intersect_ray_aabb(ray: &Ray3<f32>, bbox: &Aabb3<f32>) -> bool {
 pub trait Intersectable {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff>;
     fn bounding_box(&self) -> Aabb3<f32>;
+    //fn sample(&self, seed: Vector2<f32>) -> Vector3<f32>;
 }
 impl<'a> Intersectable for &'a Intersectable {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
@@ -37,10 +38,8 @@ impl<'a> Intersectable for &'a Intersectable {
     fn bounding_box(&self) -> Aabb3<f32> {
         (*self).bounding_box()
     }
+
 }
-
-//unsafe impl<'a> Sync for Intersectable { }
-
 
 pub struct GeomDiff {
     pub pos: Point3<f32>,
@@ -55,38 +54,7 @@ impl GeomDiff {
 }
 unsafe impl Sync for GeomDiff {}
 
-impl Intersectable for Sphere<f32> {
-    fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
-        let L = self.center.sub_p(&ray.origin);
-        let tca = L.dot(&ray.direction);
-        if tca < 0.0f32 {
-            return None;
-        }
-        let d2 = L.dot(&L) - tca * tca;
-        if d2 > self.radius {
-            return None;
-        }
 
-        let thc = (self.radius - d2).sqrt();
-        let t0 = tca - thc;
-        let t1 = tca + thc;
-
-        let lesser = t0.min(t1);
-        if lesser < 0.0f32 {
-            return None;
-        }
-
-        let poss = ray.origin.add_v(&ray.direction.mul_s(lesser));
-        Some(GeomDiff { pos: poss,
-                        n: poss.sub_p(&self.center).normalize(),
-                        d: lesser,
-                        mat_id: 0i32})
-    }
-    fn bounding_box(&self) -> Aabb3<f32> {
-        let diag = Vector3::new(self.radius, self.radius, self.radius);
-        Aabb3::new(self.center.add_v(&(-diag)), self.center.add_v(&diag))
-    }
-}
 
 #[derive(Clone)]
 pub struct ShadedIntersectable<T: Intersectable> {
@@ -103,6 +71,7 @@ impl<T:Intersectable> Intersectable for ShadedIntersectable<T> {
     fn bounding_box(&self) -> Aabb3<f32> {
         self.intersectable.bounding_box()
     }
+
 }
 
 #[derive(Clone)]
@@ -135,6 +104,7 @@ impl<T: Intersectable> Intersectable for BruteForceContainer<T> {
             item.bounding_box().grow(acc.min()).grow(acc.max())
         })
     }
+
 }
 
 
