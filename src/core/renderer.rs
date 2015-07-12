@@ -293,9 +293,46 @@ pub fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Ve
 }
 
 
+
+use std::thread::{scoped, JoinHandle};
+pub fn parallel_map<F: Sync, T, R: Send>(col: &[T], f: &F) -> Vec<R>
+    where F: Fn(&T) -> R, T: Sync {
+
+    let mut res = Vec::<R>::with_capacity(col.len());
+    unsafe {
+        res.set_len(col.len());
+    }
+    let cores = 8;
+    let per_core = col.len() / cores;
+    {
+        let mut ths : Vec<_> = col.chunks(per_core).zip(res.chunks_mut(per_core)).map(|(input, out)| {
+            scoped(move || {
+                for (i, o) in input.iter().zip(out) {
+                    let mut r = f(i);
+                    ::std::mem::swap(o, &mut r);
+                }
+            })
+        }).collect();
+    }
+
+    res
+}
+struct D(i32);
+fn test_f() {
+    let d = vec![(2usize, Ray3::new(Point3::new(0.0f32, 0.0f32, 0.0f32), Vector3::new(0.0f32, 0.0f32, 0.0f32)))];
+    let d1 = parallel_map(&d[..], &|d| {
+        d.1.origin.x
+    });
+    for i in d1.iter() {
+        println!("{}", i);
+    }
+}
+
+//unsafe impl Sync for (usize, Ray3<f32>) {}
+
 //dynamic dispatch, no point in having static one here. Thus this function is expected to be quite big
 //all loops should be internal in the different components
-pub fn render<T: Intersectable>(sampler: &Sampler, camera: &Camera, scene: &T, materials: &Vec<Material>, out : &mut Texture<RGBSpectrum>) {
+pub fn render<T: Intersectable+Sync>(sampler: &Sampler, camera: &Camera, scene: &T, materials: &Vec<Material>, out : &mut Texture<RGBSpectrum>) {
     let mut rng = rand::thread_rng();
     let elems = out.width * out.height;
 
@@ -314,12 +351,13 @@ pub fn render<T: Intersectable>(sampler: &Sampler, camera: &Camera, scene: &T, m
     let mut throughputs = vec![RGBSpectrum::white(); elems];
 
     for i in 0..3 {
-        let intersections : Vec<(usize, GeomDiff, Ray3<f32>)> = ray_pool.iter()
-        .filter_map(|&(idx, ray)| {
+        let intersections : Vec<(usize, GeomDiff, Ray3<f32>)> = parallel_map::<_, (usize, Ray3<f32>),_>(&ray_pool[..], &|&(idx, ray)| {
             match scene.intersect(ray) {
                 Some(g) => Some((idx, g, ray)),
                 None => None
             }
+        }).into_iter().filter_map(|r| {
+            r
         }).collect();
         println!("From which {} intersected with geometry", intersections.len());
 

@@ -3,8 +3,9 @@ Aabb, Aabb3};
 use std::f32;
 use std::f32::INFINITY;
 use std::f32::NEG_INFINITY;
+use core::bvh::overbox;
 
-pub fn intersect_ray_aabb(ray: Ray3<f32>, bbox: Aabb3<f32>) -> bool {
+pub fn intersect_ray_aabb(ray: &Ray3<f32>, bbox: &Aabb3<f32>) -> bool {
     let dirfrac = Vector3::from_value(1.0f32).div_v(&ray.direction);
 
     let t1 = (bbox.min().x - ray.origin.x)*dirfrac.x;
@@ -52,7 +53,7 @@ impl GeomDiff {
         self.mat_id
     }
 }
-
+unsafe impl Sync for GeomDiff {}
 
 impl Intersectable for Sphere<f32> {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
@@ -130,9 +131,7 @@ impl<T: Intersectable> Intersectable for BruteForceContainer<T> {
         best_candidate
     }
     fn bounding_box(&self) -> Aabb3<f32> {
-        let start_bbox = Aabb3::new(Point3::new(::std::f32::INFINITY, ::std::f32::INFINITY, ::std::f32::INFINITY),
-                                    Point3::new(::std::f32::NEG_INFINITY, ::std::f32::NEG_INFINITY, ::std::f32::NEG_INFINITY));
-        self.items.iter().fold(start_bbox, |acc, item| {
+        self.items.iter().fold(overbox(), |acc, item| {
             item.bounding_box().grow(acc.min()).grow(acc.max())
         })
     }
@@ -217,9 +216,8 @@ impl<T : Intersectable> Intersectable for ObjTransform<T> {
         let tm = self.tform.invert().unwrap();
         let corners = bbox.to_corners();
 
-        let start_bbox = Aabb3::new(Point3::new(::std::f32::INFINITY, ::std::f32::INFINITY, ::std::f32::INFINITY),
-                                    Point3::new(::std::f32::NEG_INFINITY, ::std::f32::NEG_INFINITY, ::std::f32::NEG_INFINITY));
-        corners.iter().fold(start_bbox, |acc, &item| {
+
+        corners.iter().fold(overbox(), |acc, &item| {
             let p = Point3::to_vec(&item).extend(1.0f32);
             let world_space_corner = Point3::from_vec(&tm.mul_v(&p).truncate());
             acc.grow(&world_space_corner)

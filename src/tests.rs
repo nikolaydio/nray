@@ -3,11 +3,41 @@ use rand::*;
 use cgmath::{Vector, Vector2, Vector3, Vector4, Point, zero, vec2, vec3, Point3, Sphere, Ray3, Matrix4, Matrix, Aabb, Aabb3, EuclideanVector};
 use core::bvh::{BVH};
 use core::renderer::{render, Sampler, GenericSampler, Camera, PinholeCamera, resolution_to_ndc, Texture, Material};
-use core::intersectable::{Intersectable, BruteForceContainer, ShadedIntersectable, Face, ObjTransform, GeomDiff};
+use core::intersectable::{Intersectable, BruteForceContainer, ShadedIntersectable, Face, ObjTransform, GeomDiff, intersect_ray_aabb};
 use core::spectrum::RGBSpectrum;
 use std::sync::{mpsc};
 use std::io::{self, BufRead, StdinLock};
 use time;
+
+#[test]
+fn test_ray_aabb() {
+    let aabb = Aabb3::new(Point3::new(-1.0f32,-1.0f32,-1.0f32),
+                        Point3::new(1.0f32,1.0f32,1.0f32));
+    let ray1 = Ray3::new(Point3::new(0.0f32, 0.0f32, -5.0f32), Vector3::new(0.0f32, 0.0f32, 1.0f32));
+    let ray2 = Ray3::new(Point3::new(0.0f32, 0.0f32, -5.0f32), Vector3::new(0.0f32, 0.0f32, -1.0f32));
+    let ray3 = Ray3::new(Point3::new(-5.0f32, 0.0f32, -5.0f32), Vector3::new(0.7f32, 0.0f32, 0.7f32));
+    let ray4 = Ray3::new(Point3::new(-5.0f32, 0.0f32, -5.0f32), Vector3::new(-0.7f32, 0.0f32, 0.7f32));
+    let ray5 = Ray3::new(Point3::new(-5.0f32, 0.0f32, -5.0f32), Vector3::new(0.0f32, 0.0f32, 1.0f32));
+    assert!(intersect_ray_aabb(&ray1, &aabb) == true);
+    assert!(intersect_ray_aabb(&ray2, &aabb) == false);
+    assert!(intersect_ray_aabb(&ray3, &aabb) == true);
+    assert!(intersect_ray_aabb(&ray4, &aabb) == false);
+    assert!(intersect_ray_aabb(&ray5, &aabb) == false);
+}
+
+#[test]
+fn test_aabb() {
+    let a =     Aabb3 { min: Point3::from_vec(&Vector3::from_value(::std::f32::INFINITY)),
+                max: Point3::from_vec(&Vector3::from_value(::std::f32::NEG_INFINITY))};
+    let b = a.grow(&Point3::new(0.5f32, 0.5f32, 0.5f32));
+    assert!(a.min.x == ::std::f32::INFINITY);
+    assert!(b.min.x == 0.5f32);
+    assert!(b.min.y == 0.5f32);
+    assert!(b.min.z == 0.5f32);
+    assert!(b.max.x == 0.5f32);
+    assert!(b.max.y == 0.5f32);
+    assert!(b.max.z == 0.5f32);
+}
 
 #[test]
 fn test_containers() {
@@ -46,7 +76,11 @@ fn test_containers() {
 		let isect1 : &Option<GeomDiff> = bf_r;
 		let isect2 : &Option<GeomDiff> = bvh_r;
 		match (isect1, isect2) {
-			(&Some(ref geom1), &Some(ref geom2)) => assert!(geom1.d == geom2.d),
+			(&Some(ref geom1), &Some(ref geom2)) => {
+                assert!(geom1.d == geom2.d);
+                assert!(geom1.pos == geom2.pos);
+                assert!(geom1.n == geom2.n);
+            },
 			(&None, &None) => assert!(true),
 			(&Some(ref geom1), &None) => assert!(false),
 			(&None, &Some(ref geom2)) => assert!(false)

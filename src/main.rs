@@ -1,4 +1,6 @@
 #![feature(float_extras)]
+#![feature(scoped)]
+
 extern crate time;
 extern crate cgmath;
 extern crate rand;
@@ -174,7 +176,7 @@ fn read_a_mesh<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> BVH<Face> {
 		let p2 : Vector3<f32> = read_vector3(rdr);
 		faces.push(Face { points: [Point3::<f32>::from_vec(&p0), Point3::<f32>::from_vec(&p1), Point3::<f32>::from_vec(&p2)] });
 	}
-	BVH::new(4, &mut faces)
+	BVH::new(24, &mut faces)
 }
 
 fn read_meshes<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> Vec<Rc<BVH<Face>>> {
@@ -187,7 +189,7 @@ fn read_meshes<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> Vec<Rc<BVH<F
 }
 
 fn read_scene<'a, I: std::iter::Iterator<Item=String>>(rdr: &mut I, meshes: & Vec<Rc<BVH<Face>>>)
-		-> BruteForceContainer<ShadedIntersectable<ObjTransform<Rc<BVH<Face>>>>> {
+		-> BVH<ShadedIntersectable<ObjTransform<Rc<BVH<Face>>>>> {
 	let count : u32 = read_value(rdr);
 	let mut objs = Vec::<ShadedIntersectable<ObjTransform<Rc<BVH<Face>>>>>::new();
 	//println!("{}", count);
@@ -202,13 +204,13 @@ fn read_scene<'a, I: std::iter::Iterator<Item=String>>(rdr: &mut I, meshes: & Ve
 					next: meshes[mesh_id as usize].clone() }
 				});
 	}
-	//BVH::new(4, &mut objs)
-	BruteForceContainer { items: objs }
+	BVH::new(24, &mut objs)
+	//BruteForceContainer { items: objs }
 }
 
 //returns samples, resolution, camera transform, fov, materials, geometry(intersectable/scene)
 fn read_input_data(source: StdinLock)
-	-> (u32, Vector2<usize>, Matrix4<f32>, f32, Vec<Material>, BruteForceContainer<ShadedIntersectable<ObjTransform<Rc<BVH<Face>>>>>) {
+	-> (u32, Vector2<usize>, Matrix4<f32>, f32, Vec<Material>, BVH<ShadedIntersectable<ObjTransform<Rc<BVH<Face>>>>>) {
 	let mut rdr = source.lines().flat_map(|e| e.unwrap().split_terminator(' ').map(|s| s.to_string()).collect::<Vec<String>>());
 	//read magic
 	let mgc : String = rdr.next().unwrap();
