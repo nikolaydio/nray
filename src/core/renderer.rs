@@ -22,15 +22,17 @@
 //10. XYZ to sRGB
 // (XYZ_pixel, sRGB graphs) -> sRGB_pixel
 
-
-use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point3, Matrix4, Matrix, EuclideanVector};
+use cgmath::prelude::*;
+use cgmath::{Vector3, Point3, Matrix4, Vector2, Vector4};
+pub use collision::Aabb3;
+pub use collision::{Ray, Ray2, Ray3};
 use core::spectrum::RGBSpectrum;
 use rand::Rng;
 use rand;
 use core::intersectable::{Intersectable, GeomDiff};
 use std::f32::consts::{PI, FRAC_1_PI};
 
-use std::ops::{Add, Sub, Mul};
+use std::ops::{Add, Sub, Mul, Div};
 use std::clone::Clone;
 
 #[derive(Clone)]
@@ -77,33 +79,33 @@ impl Camera for PinholeCamera {
         NDC.iter().map(|&ndc| {
             let origin = Vector4::<f32>::new(0.0f32, 0.0f32, 0.0f32, 1.0f32);
             let translated = ndc - Vector2::<f32>::new(0.5f32, 0.5f32);
-            let translated_scaled = translated * self.field_of_view;
+            let translated_scaled = translated.mul_element_wise(self.field_of_view);
 
             let mut direction = translated_scaled.extend(1.0f32).normalize();
             direction = -direction;
 
-            Ray3::new(vector3_to_point(&self.cam_to_world.mul_v(&origin).truncate()),
-                      (self.cam_to_world.mul_v(&direction.extend(0.0f32))).truncate())
+            Ray3::new(vector3_to_point(&self.cam_to_world.mul(origin).truncate()),
+                      (self.cam_to_world.mul(direction.extend(0.0f32))).truncate())
         }).collect()
     }
 }
 impl PinholeCamera {
     pub fn new_hf(eye: &Point3<f32>, lookat: &Point3<f32>, fov: f32, aspect_ratio: f32) -> PinholeCamera {
-        let m = Matrix4::<f32>::look_at(eye, lookat, &Vector3::new(0.0f32, 1.0f32, 0.0f32));
+        let m = Matrix4::<f32>::look_at(*eye, *lookat, Vector3::new(0.0f32, 1.0f32, 0.0f32));
         PinholeCamera::new(&m, fov, aspect_ratio)
     }
     pub fn new(cam_transform: &Matrix4<f32>, fov: f32, aspect_ratio: f32) -> PinholeCamera {
         //println!("{:?}", cam_transform);
         let m = cam_transform.invert().unwrap();
         let fov = Vector2::new(fov, fov / aspect_ratio);
-        let half_fov = fov.div_s(2.0f32);
+        let half_fov = fov.div(2.0f32);
 
         let coeff_x = 1.0f32 / (90.0f32 - half_fov.x).to_radians().sin();
         let coeff_y = 1.0f32 / (90.0f32 - half_fov.y).to_radians().sin();
 
         let _fov = Vector2::new(coeff_x * half_fov.x.to_radians().sin(), coeff_y * half_fov.y.to_radians().sin());
 
-        PinholeCamera { cam_to_world: m, field_of_view: _fov.mul_s(2.0f32) }
+        PinholeCamera { cam_to_world: m, field_of_view: _fov.mul(2.0f32) }
     }
 }
 
@@ -113,7 +115,7 @@ pub trait Sampler {
 pub struct GenericSampler;
 impl Sampler for GenericSampler {
     fn create_samples(&self, resolution: Vector2<i32>) ->  Vec<Vector2<f32>>{
-        let count = (resolution.x * resolution.y);
+        let count = resolution.x * resolution.y;
         let mut samples = Vec::<Vector2<f32>>::new();
         let mut rng = rand::thread_rng();
         for i in 0..count {
@@ -208,10 +210,10 @@ impl Material {
         if !same_hemisphere(wo, wh) {
             wh = -wh;
         }
-        let wi = -wo + wh.mul_s(wo.dot(&wh) * 2.0f32);
+        let wi = -wo + wh.mul(wo.dot(wh) * 2.0f32);
         let mut blinn_pdf = ((self.roughness + 1.0f32) * costheta.powf(self.roughness)) /
-                        (2.0f32 * PI * 4.0f32 * wo.dot(&wh));
-        if wo.dot(&wh) <= 0.0f32 {
+                        (2.0f32 * PI * 4.0f32 * wo.dot(wh));
+        if wo.dot(wh) <= 0.0f32 {
             blinn_pdf = 1.0f32
         }
         (wi, blinn_pdf)
@@ -221,7 +223,7 @@ impl Material {
         let NdotWh = wh.z.abs();
         let NdotWo = wo.z.abs();
         let NdotWi = wi.z.abs();
-        let WodotWh = wo.dot(&wh).abs();
+        let WodotWh = wo.dot(wh).abs();
         1.0f32.min(2.0f32 * NdotWh * NdotWo / WodotWh)
               .min(2.0f32 * NdotWh * NdotWi / WodotWh)
     }
@@ -236,7 +238,7 @@ impl Material {
             return RGBSpectrum::black();
         }
         wh = wh.normalize();
-        let cosThetaH = wi.dot(&wh);
+        let cosThetaH = wi.dot(wh);
         let F = self.fresnel(cosThetaH);
 
         self.albedo * self.distribution(wh) * self.G(wo, wi, wh) /
@@ -263,9 +265,9 @@ impl Material {
     fn bounce_ray(&self, r: Ray3<f32>, gd: &GeomDiff, seed: Vector3<f32>, tp: &mut RGBSpectrum) -> Ray3<f32> {
         //convert everything to local shading space
         let temp_u = if gd.n.x.abs() > 0.1f32 { Vector3::new(0.0f32, 1.0f32, 0.0f32) } else { Vector3::new(1.0f32, 0.0f32, 0.0f32) };
-        let u = temp_u.cross(&gd.n).normalize();
-        let v = gd.n.cross(&u);
-        let wo = -Vector3::new(r.direction.dot(&u), r.direction.dot(&v), r.direction.dot(&gd.n));
+        let u = temp_u.cross(gd.n).normalize();
+        let v = gd.n.cross(u);
+        let wo = -Vector3::new(r.direction.dot(u), r.direction.dot(v), r.direction.dot(gd.n));
 
         //shading calcs
         let (spec, wi, pdf) = self.sample_brdf(wo, seed);
@@ -289,12 +291,12 @@ trait Integrator {
 
 pub fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Vec<Vector2<f32>> {
     let resolution = Vector2::new(width, height);
-    buffer.iter().map(|elem| { *elem / resolution }).collect()
+    buffer.iter().map(|elem| { (*elem).div_element_wise(resolution) }).collect()
 }
 
 
 
-use std::thread::{scoped, JoinHandle};
+use std::thread::{JoinHandle};
 pub fn parallel_map<F: Sync, T, R: Send>(col: &[T], f: &F) -> Vec<R>
     where F: Fn(&T) -> R, T: Sync {
 
@@ -306,12 +308,10 @@ pub fn parallel_map<F: Sync, T, R: Send>(col: &[T], f: &F) -> Vec<R>
     let per_core = col.len() / cores;
     {
         let mut ths : Vec<_> = col.chunks(per_core).zip(res.chunks_mut(per_core)).map(|(input, out)| {
-            scoped(move || {
-                for (i, o) in input.iter().zip(out) {
-                    let mut r = f(i);
-                    ::std::mem::swap(o, &mut r);
-                }
-            })
+            for (i, o) in input.iter().zip(out) {
+                let mut r = f(i);
+                ::std::mem::swap(o, &mut r);
+            }
         }).collect();
     }
 

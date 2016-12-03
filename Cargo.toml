@@ -5,7 +5,8 @@ authors = ["Nikolay Dionisov <nikolaydionisov@gmail.com>"]
 
 
 [dependencies]
-cgmath = "0.2.0"
+cgmath = "0.12.0"
 sdl2 = "0.5.0"
 rand = "0.3.0"
 time = "0.1"
+collision = "0.9.0"

@@ -1,27 +1,41 @@
-use cgmath::{Ray3,Vector,  Vector2, Vector3, Vector4, Point, Point3, Matrix4, Matrix, EuclideanVector, Sphere, Transform,
-Aabb, Aabb3};
+
 use std::f32;
 use std::f32::INFINITY;
 use std::f32::NEG_INFINITY;
 use core::bvh::overbox;
+use cgmath::prelude::*;
+use cgmath::{Vector3, Point3, Matrix4, Vector2};
+pub use collision::Aabb3;
+pub use collision::{Ray, Ray2, Ray3};
+use collision::Aabb;
+use std::ops::*;
+/* pub struct Ray3<S> {
+    pub origin: Point3<S>,
+    pub direction: Vector3<S>
+} */
+
+pub fn vec_length(p: Vector3<f32>) -> f32
+{
+    return (p.x * p.x + p.y * p.y + p.z * p.z).sqrt();
+}
 
 pub fn intersect_ray_aabb(ray: &Ray3<f32>, bbox: &Aabb3<f32>) -> bool {
-    let dirfrac = Vector3::from_value(1.0f32).div_v(&ray.direction);
+    let dirfrac = Vector3::from_value(1.0f32).div_element_wise(ray.direction);
 
-    let t1 = (bbox.min().x - ray.origin.x)*dirfrac.x;
-    let t2 = (bbox.max().x - ray.origin.x)*dirfrac.x;
-    let t3 = (bbox.min().y - ray.origin.y)*dirfrac.y;
-    let t4 = (bbox.max().y - ray.origin.y)*dirfrac.y;
-    let t5 = (bbox.min().z - ray.origin.z)*dirfrac.z;
-    let t6 = (bbox.max().z - ray.origin.z)*dirfrac.z;
+    let t1 = (bbox.min.x - ray.origin.x)*dirfrac.x;
+    let t2 = (bbox.max.x - ray.origin.x)*dirfrac.x;
+    let t3 = (bbox.min.y - ray.origin.y)*dirfrac.y;
+    let t4 = (bbox.max.y - ray.origin.y)*dirfrac.y;
+    let t5 = (bbox.min.z - ray.origin.z)*dirfrac.z;
+    let t6 = (bbox.max.z - ray.origin.z)*dirfrac.z;
 
     let tmin = t1.min(t2).max(t3.min(t4)).max(t5.min(t6));
     let tmax = t1.max(t2).min(t3.max(t4)).min(t5.max(t6));
 
-    if (tmax < 0.0f32) {
+    if tmax < 0.0f32 {
         return false;
     }
-    if (tmin > tmax){
+    if tmin > tmax {
         return false;
     }
     return true;
@@ -101,7 +115,7 @@ impl<T: Intersectable> Intersectable for BruteForceContainer<T> {
     }
     fn bounding_box(&self) -> Aabb3<f32> {
         self.items.iter().fold(overbox(), |acc, item| {
-            item.bounding_box().grow(acc.min()).grow(acc.max())
+            item.bounding_box().grow(acc.min).grow(acc.max)
         })
     }
 
@@ -119,39 +133,39 @@ pub struct Face {
 impl Intersectable for Face {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
         let (p0, p1, p2) = (self.points[0], self.points[1], self.points[2]);
-        let e1 = p1.sub_p(&p0);
-        let e2 = p2.sub_p(&p0);
-        let s1 = ray.direction.cross(&e2);
-        let divisor = s1.dot(&e1);
+        let e1 = p1.sub(p0);
+        let e2 = p2.sub(p0);
+        let s1 = ray.direction.cross(e2);
+        let divisor = s1.dot(e1);
 
         if divisor.abs() < 0.00001f32 {
             return None;
         }
         let invDivisor = 1.0f32 / divisor;
         //first barycentric coord
-        let d = ray.origin.sub_p(&p0);
-        let b1 = d.dot(&s1) * invDivisor;
+        let d = ray.origin.sub(p0);
+        let b1 = d.dot(s1) * invDivisor;
         if b1 < 0.0f32 || b1 > 1.0f32 {
             return None;
         }
-        let s2 = d.cross(&e1);
-        let b2 = ray.direction.dot(&s2) * invDivisor;
+        let s2 = d.cross(e1);
+        let b2 = ray.direction.dot(s2) * invDivisor;
         if b2 < 0.0f32 || b1 + b2 > 1.0f32 {
             return None;
         }
-        let t = e2.dot(&s2) * invDivisor;
+        let t = e2.dot(s2) * invDivisor;
 
         if t < 0.00001f32 {
             return None;
         }
 
-        Some(GeomDiff { pos: ray.origin.add_v(&ray.direction.mul_s(t)),
+        Some(GeomDiff { pos: ray.origin.add(ray.direction.mul(t)),
                    d: t,
-                   n: e1.cross(&e2).normalize() ,
+                   n: e1.cross(e2).normalize() ,
                    mat_id: 0})
     }
     fn bounding_box(&self) -> Aabb3<f32> {
-        Aabb3::new(self.points[0], self.points[1]).grow(&self.points[2])
+        Aabb3::new(self.points[0], self.points[1]).grow(self.points[2])
     }
 }
 
@@ -163,18 +177,18 @@ pub struct ObjTransform<T : Intersectable> {
 impl<T : Intersectable> Intersectable for ObjTransform<T> {
     fn intersect(&self, ray: Ray3<f32>) -> Option<GeomDiff> {
         //transform ray into obj space
-        let inner_ray = Ray3::new(Point3::from_vec(&self.tform.mul_v(&(Point3::to_vec(&ray.origin).extend(1.0f32))).truncate()),
-                                self.tform.mul_v(&ray.direction.extend(0.0f32)).truncate());
+        let inner_ray = Ray3::new(Point3::from_vec(self.tform.mul(&(Point3::to_vec(ray.origin).extend(1.0f32))).truncate()),
+                                self.tform.mul(ray.direction.extend(0.0f32)).truncate());
         let isect = self.next.intersect(inner_ray);
 
         match isect {
             Some(geo) =>  {
                 let tm = self.tform.invert().unwrap();
-                let outer_pos = Point3::from_vec(&tm.mul_v(&Point3::to_vec(&geo.pos).extend(1.0f32)).truncate());
+                let outer_pos = Point3::from_vec(tm.mul(Point3::to_vec(geo.pos).extend(1.0f32)).truncate());
                 Some(GeomDiff {
                     pos: outer_pos,
-                    n: tm.mul_v(&geo.n.extend(0.0f32)).truncate().normalize(),
-                    d: outer_pos.sub_p(&ray.origin).length(),
+                    n: tm.mul(geo.n.extend(0.0f32)).truncate().normalize(),
+                    d: vec_length(outer_pos.sub(ray.origin)),
                     mat_id: geo.mat_id
                     })
             },
@@ -188,9 +202,9 @@ impl<T : Intersectable> Intersectable for ObjTransform<T> {
 
 
         corners.iter().fold(overbox(), |acc, &item| {
-            let p = Point3::to_vec(&item).extend(1.0f32);
-            let world_space_corner = Point3::from_vec(&tm.mul_v(&p).truncate());
-            acc.grow(&world_space_corner)
+            let p = Point3::to_vec(item).extend(1.0f32);
+            let world_space_corner = Point3::from_vec(tm.mul(p).truncate());
+            acc.grow(world_space_corner)
         })
     }
 }

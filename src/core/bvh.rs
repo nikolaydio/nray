@@ -1,7 +1,11 @@
 use core::intersectable::{Intersectable, intersect_ray_aabb, GeomDiff};
-use cgmath::{Vector3, Vector, Ray3, Aabb, Point, Point3};
-use cgmath::Aabb3;
+use cgmath::prelude::*;
+use cgmath::{Vector3, Point3, Matrix4, Vector2, Vector4};
+pub use collision::Aabb3;
+pub use collision::{Ray, Ray2, Ray3};
 use std::clone::Clone;
+use collision::Aabb;
+use std::ops::Sub;
 
 pub struct PInfo {
     idx : usize,
@@ -29,8 +33,8 @@ fn longest_extend(v: Vector3<f32>) -> u32 {
 }
 
 pub fn overbox() -> Aabb3<f32> {
-    Aabb3 { min: Point3::from_vec(&Vector3::from_value(::std::f32::INFINITY)),
-            max: Point3::from_vec(&Vector3::from_value(::std::f32::NEG_INFINITY))}
+    Aabb3 { min: Point3::from_vec(Vector3::from_value(::std::f32::INFINITY)),
+            max: Point3::from_vec(Vector3::from_value(::std::f32::NEG_INFINITY))}
 }
 
 
@@ -66,16 +70,16 @@ impl<T: Intersectable+Clone> BVH<T> {
     }
     pub fn build(elems: &mut [PInfo], offset: usize, max_prims_node: u32, depth: u32) -> Box<Node> {
         let bbox = elems.iter().fold(overbox(), |acc, item| {
-            acc.grow(&item.bbox.min()).grow(&item.bbox.max())
+            acc.grow(item.bbox.min()).grow(item.bbox.max())
         });
         if elems.len() == 1 || depth > 7 {
             Box::new(Node::Leaf(bbox, offset, elems.len()))
         }else {
             //find bounding centroid
             let bcent = elems.iter().fold(overbox(), |acc, item| {
-                acc.grow(&item.bbox.center())
+                acc.grow(item.bbox.center())
             });
-            let dimensions = bcent.max().sub_p(bcent.min());
+            let dimensions = bcent.max().sub(bcent.min());
             let axis = longest_extend(dimensions) as usize;
 
             let mid = elems.len() / 2;

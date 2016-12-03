@@ -1,6 +1,6 @@
 use rand;
 use rand::*;
-use cgmath::{Vector, Vector2, Vector3, Vector4, Point, zero, vec2, vec3, Point3, Sphere, Ray3, Matrix4, Matrix, Aabb, Aabb3, EuclideanVector};
+use cgmath::prelude::*;
 use core::bvh::{BVH};
 use core::renderer::{render, Sampler, GenericSampler, Camera, PinholeCamera, resolution_to_ndc, Texture, Material};
 use core::intersectable::{Intersectable, BruteForceContainer, ShadedIntersectable, Face, ObjTransform, GeomDiff, intersect_ray_aabb};

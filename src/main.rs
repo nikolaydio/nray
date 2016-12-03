@@ -1,11 +1,15 @@
-#![feature(float_extras)]
-#![feature(scoped)]
 
 extern crate time;
 extern crate cgmath;
 extern crate rand;
-use cgmath::{Vector, Vector2, Vector3, Vector4, Point, zero, vec2, vec3, Point3, Sphere, Ray3, Matrix4, Matrix, Aabb, Aabb3, EuclideanVector};
+extern crate collision;
+
+
 use core::bvh::{BVH};
+use cgmath::prelude::*;
+use cgmath::{Vector3, Point3, Matrix4, Vector2, Vector4};
+pub use collision::Aabb3;
+pub use collision::{Ray, Ray2, Ray3};
 
 extern crate sdl2;
 use sdl2::pixels::Color;
@@ -48,8 +52,8 @@ fn headless_present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, T
 		match data {
 			Ok((times, tex, done)) => {
 				let divisor = times as f32;
-				for y in (0..tex.height) {
-					for x in (0..tex.width) {
+				for y in 0..tex.height {
+					for x in 0..tex.width {
 						let v : RGBSpectrum = *tex.get(tex.width-x-1,tex.height-y-1) / divisor;
 						let (r,g,b) = v.to_sRGB();
 						println!("{} {} {}", r, g, b);
@@ -98,8 +102,8 @@ fn present(res : Vector2<usize>, rx : std::sync::mpsc::Receiver<(u32, Texture<RG
 
 				let divisor = times as f32;
 				texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
-					for y in (0..tex.height) {
-						for x in (0..tex.width) {
+					for y in 0..tex.height {
+						for x in 0..tex.width {
 							let offset = y*pitch + x*3;
 							let v : RGBSpectrum = *tex.get(tex.width-x-1, y) / divisor;
 							let (r,g,b) = v.to_sRGB();
@@ -174,7 +178,7 @@ fn read_a_mesh<I: std::iter::Iterator<Item=String>>(rdr: &mut I) -> BVH<Face> {
 		let p0 : Vector3<f32> = read_vector3(rdr);
 		let p1 : Vector3<f32> = read_vector3(rdr);
 		let p2 : Vector3<f32> = read_vector3(rdr);
-		faces.push(Face { points: [Point3::<f32>::from_vec(&p0), Point3::<f32>::from_vec(&p1), Point3::<f32>::from_vec(&p2)] });
+		faces.push(Face { points: [Point3::<f32>::from_vec(p0), Point3::<f32>::from_vec(p1), Point3::<f32>::from_vec(p2)] });
 	}
 	BVH::new(24, &mut faces)
 }
