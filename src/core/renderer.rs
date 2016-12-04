@@ -297,26 +297,43 @@ pub fn resolution_to_ndc(buffer: &[Vector2<f32>], width: f32, height: f32) -> Ve
 
 
 use std::thread::{JoinHandle};
-pub fn parallel_map<F: Sync, T, R: Send>(col: &[T], f: &F) -> Vec<R>
+use rayon::prelude::*;
+
+pub fn parallel_map<F: Sync, T, R: Send+Sync>(col: &[T], f: &F) -> Vec<R>
     where F: Fn(&T) -> R, T: Sync {
 
     let mut res = Vec::<R>::with_capacity(col.len());
     unsafe {
         res.set_len(col.len());
     }
-    let cores = 8;
-    let per_core = col.len() / cores;
-    {
-        let mut ths : Vec<_> = col.chunks(per_core).zip(res.chunks_mut(per_core)).map(|(input, out)| {
-            for (i, o) in input.iter().zip(out) {
-                let mut r = f(i);
-                ::std::mem::swap(o, &mut r);
-            }
-        }).collect();
-    }
 
+    process_parallel_map(col, &mut res, f);
+    
     res
 }
+use rayon;
+
+pub fn process_parallel_map<F: Sync, T, R: Send+Sync>(col: &[T], out: &mut [R], f: &F) where F: Fn(&T) -> R, T: Sync
+{
+    if col.len() <= 1024 * 4
+    {
+        for (i, o) in col.iter().zip(out) {
+            let mut r = f(i);
+            ::std::mem::swap(o, &mut r);
+        }
+    }else{
+        let mid = col.len() / 2;
+        let (lo, hi) = col.split_at(mid);
+        {
+            let (loout, hiout) = out.split_at_mut(mid);
+            
+            rayon::join(|| process_parallel_map(lo, loout, f),
+                        || process_parallel_map(hi, hiout, f));
+        }
+    }
+    
+}
+
 struct D(i32);
 fn test_f() {
     let d = vec![(2usize, Ray3::new(Point3::new(0.0f32, 0.0f32, 0.0f32), Vector3::new(0.0f32, 0.0f32, 0.0f32)))];

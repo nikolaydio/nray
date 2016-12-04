@@ -3,7 +3,7 @@ extern crate time;
 extern crate cgmath;
 extern crate rand;
 extern crate collision;
-
+extern crate rayon;
 
 use core::bvh::{BVH};
 use cgmath::prelude::*;
